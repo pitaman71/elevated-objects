@@ -1,2 +1,6 @@
 build/
 dist/
+__pycache__
+*.egg-info
+task*.json
+test*.json
