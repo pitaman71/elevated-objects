@@ -26,8 +26,14 @@ class PropertyCollector(serializable.Visitor[ExpectedType]):
     def end(self, obj: ExpectedType) -> None:
         pass
 
-    def verbatim(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
-        self.prop_names.add(prop_name)
+    def verbatim(self, 
+        data_type: typing.Type, 
+        target: serializable.Serializable, 
+        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
+        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ) -> None:
+        self.prop_names = self.prop_names.union(get_prop_names())
 
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
         self.prop_names.add(prop_name)
@@ -56,17 +62,16 @@ class PropertyMutator(serializable.Visitor):
     def end(self, obj: serializable.ExpectedType) -> None:
         pass
 
-    def verbatim(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
-        return self.primitive(data_type, target, prop_name)
-
-    def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
-        if prop_name != self.prop_name:
-            return
-
-        host = serializable.Primitive(data_type, target, prop_name)
+    def verbatim(self,
+        data_type: typing.Type, 
+        target: serializable.Serializable, 
+        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
+        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ) -> None:
         if data_type == int:
-            before = host.value
-            after = host.value
+            before = get_value(target)
+            after = get_value(target)
             while before == after:
                 gen = random.choice([ 
                     lambda: random.randint(0,1),
@@ -76,10 +81,10 @@ class PropertyMutator(serializable.Visitor):
                     lambda: random.random()
                 ])
                 after = gen()
-            host.set_value(after)
+            set_value(target, after)
         elif data_type == float:
-            before = host.value
-            after = host.value
+            before = get_value(target)
+            after = get_value(target)
             while before == after:
                 gen = random.choice([ 
                     lambda: random.uniform(0,1),
@@ -89,10 +94,10 @@ class PropertyMutator(serializable.Visitor):
                     lambda: random.uniform(sys.float_info.min, sys.float_info.max)
                 ])
                 after = gen()
-            host.set_value(after)
+            set_value(target, after)
         elif data_type == datetime.datetime:
-            before = typing.cast(datetime.datetime, host.value)
-            after = before
+            before = get_value(target)
+            after = get_value(target)
             while before == after:
                 basis = datetime.datetime.now() if before is None else random.choice([before, datetime.datetime.now()])
                 delta_generators = [
@@ -115,13 +120,23 @@ class PropertyMutator(serializable.Visitor):
                     lambda: basis + datetime.timedelta(weeks=delta())
                 ])
                 after = gen()
-            host.set_value(after)
+            set_value(target, after)
         elif data_type == str:
-            before = host.value
-            after = host.value
+            before = get_value(target)
+            after = get_value(target)
             while before == after:
                 after = lorem.sentence()
-            host.set_value(after)
+            set_value(target, after)
+
+    def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
+        if prop_name != self.prop_name:
+            return
+
+        return self.verbatim(data_type, target, 
+            lambda target: getattr(target, prop_name),
+            lambda target, new_value: setattr(target, prop_name, new_value),
+            lambda: set(prop_name,)
+        )
 
     def scalar(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
         raise RuntimeError('Unsupported Method')
@@ -158,7 +173,6 @@ class Mutator:
 
         # choose a symbol to mutate
         chosen_symbol = random.choice(list(self.after.keys()))
-        print(f"DEBUG: original: {self.factory.to_string(self.before[chosen_symbol])}")
 
         self.mutate_symbol(chosen_symbol)
         return (self.before, self.after)
@@ -168,8 +182,6 @@ class Mutator:
         chosen_symbol = chosen_symbol.clone(chosen_symbol)
         self.after[chosen_symbol_name] = chosen_symbol
 
-        print(f"DEBUG: after clone: {self.factory.to_string(self.after[chosen_symbol_name])}")
-
         # choose a property to mutate
         prop_name_collector = PropertyCollector()
         chosen_symbol.marshal(prop_name_collector)
@@ -178,7 +190,5 @@ class Mutator:
         # mutate that one property
         prop_mutator = PropertyMutator(chosen_prop_name)
         chosen_symbol.marshal(prop_mutator)
-
-        print(f"DEBUG: after mutation: {self.factory.to_string(self.after[chosen_symbol_name])}")
 
         

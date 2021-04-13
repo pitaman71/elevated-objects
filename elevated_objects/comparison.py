@@ -33,8 +33,28 @@ class DefaultComparator(serializable.Visitor):
         return self.result
 
     @function_task(logMethod=True)
-    def verbatim(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str) -> Result:
-        return self.primitive(data_type, target, prop_name)
+    def verbatim(self, 
+        data_type: typing.Type, 
+        target: serializable.Serializable, 
+        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
+        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ) -> Result:
+        if self.result != Result.Equal:
+            return self.result
+        a_prop = get_value(self.a)
+        b_prop = get_value(self.b)
+        if not a_prop is None and b_prop is None:
+            self.result = Result.Less
+        elif a_prop is None and not b_prop is None:
+            self.result = Result.Greater
+        elif a_prop is None and b_prop is None:
+            pass
+        elif a_prop < b_prop:
+            self.result = Result.Less
+        elif a_prop > b_prop:
+            self.result = Result.Greater
+        return self.result
 
     @function_task(logMethod=True)
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], serializable.PropType ] = None) -> Result:

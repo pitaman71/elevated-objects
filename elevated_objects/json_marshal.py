@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 
 from __future__ import annotations
-import inspect
-import abc
-import enum
 import typing
 import functools
 import json
@@ -26,14 +23,19 @@ class Initializer(serializable.Visitor[ExpectedType]):
     def __init__(self, *initializers):
         self.initializers = list(initializers)
 
-    def verbatim(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
-        host = serializable.Primitive(data_type, target, prop_name)
+    def verbatim(self,
+        data_type: typing.Type, 
+        target: serializable.Serializable, 
+        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
+        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ) -> None:
         new_value = functools.reduce(
-            lambda result, initializer: result if initializer is None else initializer,
+            lambda result, initializer: result if initializer is None else get_value(initializer),
             self.initializers,
             None)
         if new_value is not None:
-            host.set_value(new_value)
+            set_value(target, new_value)
 
     def primitive(self, data_type: typing.Type, target, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
         host = serializable.Primitive(data_type, target, prop_name)
@@ -122,15 +124,20 @@ class Reader(serializable.Visitor[ExpectedType]):
         # Must be called at the end of any marshal method. Tells this object that we are done visiting the body of that object
         pass
 
-    def verbatim(self, data_type: typing.Type, target: typing.Any, prop_name: str):
+    def verbatim(self,
+        data_type: typing.Type, 
+        target: serializable.Serializable, 
+        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
+        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        host = serializable.Primitive(data_type, target, prop_name)
         if self.json is None:
             raise RuntimeError('No JSON here')
         else:
-            host.set_value(self.json)
+            set_value(target, self.json)
 
     def primitive(self, data_type: typing.Type, target: typing.Any, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
@@ -235,15 +242,20 @@ class Writer(serializable.Visitor[ExpectedType]):
         # Must be called at the end of any marshal method. Tells this object that we are done visiting the body of that object
         pass
 
-    def verbatim(self, data_type: typing.Type, target: typing.Any, prop_name: str):
-        host = serializable.Primitive(data_type, target, prop_name)
-        if host.value is not None and not self.is_ref:
-            self.json = host.value
+    def verbatim(self,
+        data_type: typing.Type, 
+        target: serializable.Serializable, 
+        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
+        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ):
+        if get_value(target) is not None and not self.is_ref:
+            self.json = get_value(target)
 
     def primitive(self, data_type: typing.Type, target: typing.Any, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
         host = serializable.Primitive(data_type, target, prop_name)
         if host.value is not None and not self.is_ref:
-            self.json[host.prop_name] = host.value
+            self.json[prop_name] = host.value
 
     def scalar(self, element_type: typing.Type, target: typing.Any, prop_name: str):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.

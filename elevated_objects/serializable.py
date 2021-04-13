@@ -27,7 +27,13 @@ class Visitor(typing.Generic[ExpectedType]):
         pass
 
     @abc.abstractmethod
-    def verbatim(self, data_type: typing.Type, target: Serializable, prop_name: str) -> None:
+    def verbatim(self,
+        data_type: typing.Type, 
+        target: Serializable, 
+        get_value: typing.Callable [ [Serializable], typing.Any ],
+        set_value: typing.Callable [ [Serializable, typing.Any ], None],
+        get_prop_names: typing.Callable [ [], typing.Set[str] ]
+    ) -> None:
         pass
 
     @abc.abstractmethod
