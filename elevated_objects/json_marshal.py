@@ -145,7 +145,7 @@ class Reader(visitor.Visitor[ExpectedType]):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
         if self.json is None:
-            raise RuntimeError('No JSON here')
+            setattr(target, prop_name, None)
         elif prop_name in self.json:
             reader = Reader(self.json[prop_name], self.factory, self.refs)
             reader.read(element_builder)
@@ -186,7 +186,9 @@ class Reader(visitor.Visitor[ExpectedType]):
             class_spec = self.factory.get_class_spec(element_builder.make())
         else:
             class_spec = None
-        if class_spec is not None and self.factory.has_class(class_spec):
+        if self.json is None:
+            self.obj = None
+        elif class_spec is not None and self.factory.has_class(class_spec):
             new_object = self.factory.make(class_spec)
             new_object.marshal(self)
             self.obj = typing.cast(ExpectedType, new_object)

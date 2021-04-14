@@ -84,6 +84,7 @@ class ScalarMutator(typing.Generic[ElementType]):
         class_spec = self.mutator.factory.get_class_spec(self.element_type.make())
         if self.before is None:
             self.weights['clear'] = 0.0
+            self.weights['modify'] = 0.0
         if not self.mutator.can_pick(class_spec):
             self.weights['pick'] = 0.0
 
@@ -112,32 +113,33 @@ class ScalarMutator(typing.Generic[ElementType]):
             self.weights.keys(),
             Iterator(None, random.uniform(0.0,total))
         )
-
-        if kind_selector == 'make':
+        if kind_selector.selected == 'make':
             made = self.mutator.make(class_spec)
             self.after = typing.cast(ElementType, self.mutator.element(made))
-        elif kind_selector == 'pick':
+        elif kind_selector.selected == 'pick':
             if not self.mutator.can_pick(class_spec):
                 raise RuntimeError('No samples from which to pick')
             self.after = typing.cast(ElementType, self.mutator.pick(class_spec))
-        elif kind_selector == 'modify':
+        elif kind_selector.selected == 'modify':
             if self.before is None:
                 raise RuntimeError('Logic error')
             self.after = typing.cast(ElementType, self.mutator.element(self.before))
-        elif kind_selector == 'clear':
+        elif kind_selector.selected == 'clear':
             self.after = None
         return self.after
 
 class PropertyMutator(visitor.Visitor):
     mutator: Mutator
     prop_name: str
+    count: int
 
     def __init__(self, mutator: Mutator, prop_name: str):
         self.mutator = mutator
         self.prop_name = prop_name
+        self.count = 0
 
     def begin(self, obj: serializable.ExpectedType, parent_prop_name: str = None) -> None:
-        pass
+        self.count = 0
 
     def end(self, obj: serializable.ExpectedType) -> None:
         pass
@@ -149,6 +151,7 @@ class PropertyMutator(visitor.Visitor):
         set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
         get_prop_names: typing.Callable [ [], typing.Set[str] ]
     ) -> None:
+        self.count += 1
         if data_type == int:
             before = get_value(target)
             after = get_value(target)
@@ -207,6 +210,8 @@ class PropertyMutator(visitor.Visitor):
             while before == after:
                 after = lorem.sentence()
             set_value(target, after)
+        else:
+            raise RuntimeError(f"Unable to mutate property of type {data_type}")
 
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
         if prop_name != self.prop_name:
@@ -221,6 +226,7 @@ class PropertyMutator(visitor.Visitor):
     def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         if prop_name != self.prop_name:
             return
+        self.count += 1
         element_class_spec = self.mutator.factory.get_class_spec(element_builder.make())
         mutator = ScalarMutator(self.mutator,
             element_builder,
@@ -298,4 +304,6 @@ class Mutator:
         # mutate that one property
         prop_mutator = PropertyMutator(self, chosen_prop_name)
         after.marshal(prop_mutator)
+        if prop_mutator.count == 0:
+            raise RuntimeError(f"Failed to mutate property {class_spec}.{chosen_prop_name}")
         return after

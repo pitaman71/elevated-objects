@@ -101,6 +101,13 @@ def cmp(a: serializable.Serializable, b: serializable.Serializable):
     if(hasattr(a, '__cmp__')):
         return getattr(a, '__cmp__')(b)
 
+    if a is None and b is not None:
+        return -1
+    elif a is not None and b is None:
+        return 1
+    elif a is None and b is None:
+        return 0
+
     comparator = DefaultComparator(a, b)
     a.marshal(comparator)
     if comparator.result == Result.Less:

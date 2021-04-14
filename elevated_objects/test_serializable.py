@@ -76,7 +76,7 @@ class Scalar(serializable.Cloneable):
 
     @classmethod
     def Builder(cls):
-        construction.Builder(lambda: Scalar())
+        return construction.Builder(lambda: Scalar())
 
     def __init__(self):
         self.prop_primitives = None
@@ -268,25 +268,22 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
         last = self.blank
         mutator = configuration.Mutator(factory)
         for index in range(self.mutation_count):
-            st_mutator = configuration.SymbolTableMutator(mutator, {
-                'a': last
-            })
-            st_mutator.done()
-            last = typing.cast(Scalar, st_mutator.after['a'])
+            st_mutator = configuration.ScalarMutator(mutator, Scalar.Builder(), last)
+            last = typing.cast(Scalar, st_mutator())
             self.mutations.append(last)
 
     def marshal(self, visitor: visitor.Visitor):
         visitor.begin(self)
-        visitor.scalar(Primitives, self, 'blank')
+        visitor.scalar(Scalar.Builder(), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')
-        visitor.array(Primitives, self, 'mutations')
+        visitor.array(Scalar.Builder(), self, 'mutations')
         visitor.end(self)
 
     def test_mutate_compare(self):
         for index in range(self.mutation_count):
             self.assertTrue(comparison.cmp(self.mutations[index], self.mutations[index]) == 0)
             if index == 0:
-                self.assertTrue(comparison.cmp(typing.cast(Primitives, self.blank), self.mutations[index]) != 0)
+                self.assertTrue(comparison.cmp(typing.cast(Scalar, self.blank), self.mutations[index]) != 0)
             else:
                 self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {index-1} vs. {index} in {self.get_static_pattern_path()}")
 
@@ -323,7 +320,7 @@ factory.add_value_makers(['test_serializable'], {
     'GenericTestVerbatim.int': lambda: GenericTestVerbatim(int),
     'GenericTestVerbatim.float': lambda: GenericTestVerbatim(float),
     'GenericTestVerbatim.str': lambda: GenericTestVerbatim(str),
-    #'TestScalar': lambda: TestScalar()
+    'TestScalar': lambda: TestScalar()
 })
 
 if __name__ == '__main__':
