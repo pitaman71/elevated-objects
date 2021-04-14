@@ -7,10 +7,11 @@ import json
 
 from . import construction
 from . import serializable
+from . import visitor
 
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
 
-class Initializer(serializable.Visitor[ExpectedType]):
+class Initializer(visitor.Visitor[ExpectedType]):
     initializers: typing.List[typing.Any]
     obj: ExpectedType
 
@@ -38,9 +39,8 @@ class Initializer(serializable.Visitor[ExpectedType]):
             set_value(target, new_value)
 
     def primitive(self, data_type: typing.Type, target, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
-        host = serializable.Primitive(data_type, target, prop_name)
         new_value = functools.reduce(
-            lambda result, initializer: host.object_get_prop(initializer) or result,
+            lambda result, initializer: getattr(initializer, prop_name) or result,
             self.initializers,
             None)
         if new_value is not None:
@@ -48,41 +48,39 @@ class Initializer(serializable.Visitor[ExpectedType]):
                 typed_value = fromString(new_value)
             else: 
                 typed_value = new_value
-            host.set_value(typed_value)
+            setattr(target, prop_name, typed_value)
 
-    def scalar(self, element_type: typing.Type, target, prop_name: str):
-        host = serializable.Scalar(element_type, target, prop_name)
+    def scalar(self, element_builder: construction.Builder, target, prop_name: str):
         new_values = [
-            host.object_get_prop(initializer) for initializer in self.initializers if host.object_has_prop(initializer)
+            getattr(initializer, prop_name) for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
         if len(new_values) == 1:
-            return host.set_value(new_values[0])
+            return setattr(target, prop_name, new_values[0])
         elif len(new_values) > 1:
-            return host.set_value(new_values[0].clone(*new_values))
+            return setattr(target, prop_name, new_values[0].clone(*new_values))
 
-    def array(self, element_type: typing.Type, target, prop_name: str):
-        host = serializable.ArrayProp(element_type, target, prop_name)
+    def array(self, element_builder: construction.Builder, target, prop_name: str):
         has_property = [
-            initializer for initializer in self.initializers if host.object_has_prop(initializer)
+            initializer for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
         max_length = functools.reduce(
             lambda result, initializer:
-                max(len(host.object_get_prop(initializer)), result),
+                max(len(getattr(initializer, prop_name)), result),
             has_property, 0)
 
         if max_length > 0:
             new_array_value = []
             for index in range(max_length):
-                element_values = [ host.object_get_prop(initializer)[index] for initializer in has_property if len(initializer) > index and host.object_get_prop(initializer) is not None ]
+                element_values = [ getattr(initializer, prop_name)[index] for initializer in has_property if len(initializer) > index and getattr(initializer, prop_name) is not None ]
                 new_element_value = element_values[0].clone(*element_values) if len(element_values) > 0 else None
                 new_array_value.append(new_element_value)
-            host.set_value(new_array_value)
+            setattr(target, prop_name, new_array_value)
 
     def init(self, target: serializable.Serializable):
         target.marshal(self)
 
 RefTable = typing.Dict[ str, typing.Dict[ int, serializable.Serializable ] ]
-class Reader(serializable.Visitor[ExpectedType]):
+class Reader(visitor.Visitor[ExpectedType]):
     json: typing.Any
     obj: typing.Union[ExpectedType, None]
     factory: construction.Factory
@@ -105,15 +103,12 @@ class Reader(serializable.Visitor[ExpectedType]):
         if self.obj is None:
             self.obj = obj
 
-        if '__class__' not in self.json:
-            raise RuntimeError(f"Expected __class__ to be present in JSON. Properties included ${self.json.keys()}")
-
-        class_name = self.json['__class__']
+        class_name = self.factory.get_class_spec(self.obj)
         if class_name not in self.refs:
             self.refs[class_name] = dict()
 
         by_id = self.refs[class_name]
-        if '__id__' in self.json:
+        if type(self.json) == dict and '__id__' in self.json:
             if self.json['__id__'] in by_id:
                 self.obj = typing.cast(ExpectedType, by_id[self.json['__id__']])
                 self.is_ref = True
@@ -134,74 +129,72 @@ class Reader(serializable.Visitor[ExpectedType]):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        if self.json is None:
-            raise RuntimeError('No JSON here')
-        else:
-            set_value(target, self.json)
+        set_value(target, self.json)
 
     def primitive(self, data_type: typing.Type, target: typing.Any, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        host = serializable.Primitive(data_type, target, prop_name)
         if self.json is None:
             raise RuntimeError('No JSON here')
-        elif host.prop_name in self.json:
+        elif prop_name in self.json:
             new_value = fromString(self.json[prop_name]) if type(self.json[prop_name]) == str and  fromString is not None else self.json[prop_name]
-            host.set_value(new_value)
+            setattr(target, prop_name, new_value)
 
-    def scalar(self, element_type: typing.Type, target: typing.Any, prop_name: str):
+    def scalar(self, element_builder: construction.Builder, target: typing.Any, prop_name: str):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
-        host = serializable.Scalar(element_type, target, prop_name)
         if self.json is None:
             raise RuntimeError('No JSON here')
-        elif host.prop_name in self.json:
-            reader = Reader(self.json[host.prop_name], self.factory, self.refs)
-            reader.read()
+        elif prop_name in self.json:
+            reader = Reader(self.json[prop_name], self.factory, self.refs)
+            reader.read(element_builder)
             if reader.obj is not None:
-                host.set_value(reader.obj)
+                setattr(target, prop_name, reader.obj)
 
     def array(self, element_type: typing.Type, target: typing.Any, prop_name: str):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         # Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        host = serializable.ArrayProp(element_type, target, prop_name)
         if self.json is None:
             raise RuntimeError('No JSON here')
-        elif host.prop_name in self.json:
-            prop_value = self.json[host.prop_name]
+        elif prop_name in self.json:
+            prop_value = self.json[prop_name]
             new_value = []
             for item in prop_value:
                 reader = Reader(item, self.factory, self.refs)
-                reader.read()
+                reader.read(element_type)
                 new_value.append(reader.obj)
-            host.set_value(new_value)
+            setattr(target, prop_name, new_value)
 
     def map(self, key_type: typing.Type, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
-        host = serializable.MapProp(element_type, target, prop_name)
         if self.json is None:
             raise RuntimeError('No JSON here')
-        elif host.prop_name in self.json:
-            prop_value = self.json[host.prop_name]
+        elif prop_name in self.json:
+            prop_value = self.json[prop_name]
             new_value = {}
-            for key, value in self.json[host.prop_name].items():
+            for key, value in self.json[prop_name].items():
                 reader = Reader(value, self.factory, self.refs)
-                reader.read()
+                reader.read(element_type)
                 new_value[key] = reader.obj
-            host.set_value(new_value)
+            setattr(target, prop_name, new_value)
 
-    def read(self):
-        klass = self.json['__class__']
-        if self.factory.has_class(klass):
-            new_object = self.factory.instantiate(klass)
+    def read(self, element_builder: typing.Union[construction.Builder, None] = None):
+        if type(self.json) == dict and '__class__' in self.json:
+            class_spec = self.json['__class__'] 
+        elif element_builder is not None:
+            class_spec = self.factory.get_class_spec(element_builder.make())
+        else:
+            class_spec = None
+        if class_spec is not None and self.factory.has_class(class_spec):
+            new_object = self.factory.make(class_spec)
             new_object.marshal(self)
             self.obj = typing.cast(ExpectedType, new_object)
             return new_object
         else:
             raise RuntimeError(f"Cannot construct object by reading JSON: {self.jsonPreview()}")
 
-class Writer(serializable.Visitor[ExpectedType]):
+class Writer(visitor.Visitor[ExpectedType]):
     obj:ExpectedType
     json: typing.Any
     factory: construction.Factory
@@ -249,46 +242,41 @@ class Writer(serializable.Visitor[ExpectedType]):
         set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
         get_prop_names: typing.Callable [ [], typing.Set[str] ]
     ):
-        if get_value(target) is not None and not self.is_ref:
-            self.json = get_value(target)
+        self.json = get_value(target)
 
     def primitive(self, data_type: typing.Type, target: typing.Any, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
-        host = serializable.Primitive(data_type, target, prop_name)
-        if host.value is not None and not self.is_ref:
-            self.json[prop_name] = host.value
+        if getattr(target, prop_name) is not None and not self.is_ref:
+            self.json[prop_name] = getattr(target, prop_name)
 
-    def scalar(self, element_type: typing.Type, target: typing.Any, prop_name: str):
+    def scalar(self, element_builder: construction.Builder, target: typing.Any, prop_name: str):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
-        host = serializable.Scalar(element_type, target, prop_name)
         # For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        if host.value is not None and not self.is_ref:
-            writer = Writer(host.value, self.factory, self.refs)
+        if getattr(target,prop_name) is not None and not self.is_ref:
+            writer = Writer(getattr(target,prop_name), self.factory, self.refs)
             writer.write()
-            self.json[host.prop_name] = writer.json
+            self.json[prop_name] = writer.json
 
-    def array(self, element_type: typing.Type, target: typing.Any, prop_name: str):
+    def array(self, element_builder: construction.Builder, target: typing.Any, prop_name: str):
         # For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         # Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        host = serializable.ArrayProp(element_type, target, prop_name)
-        if host.value is not None and not self.is_ref:
-            self.json[host.prop_name] = []
-            for item in host.value:            
+        if getattr(target,prop_name) is not None and not self.is_ref:
+            self.json[prop_name] = []
+            for item in getattr(target,prop_name):
                 writer = Writer(item, self.factory, self.refs)
                 writer.write()
-                self.json[host.prop_name].append(writer.json)
+                self.json[prop_name].append(writer.json)
 
-    def map(self, key_type: typing.Type, element_type: typing.Type, target: typing.Any, prop_name: str) -> None:
-        host = serializable.MapProp(element_type, target, prop_name)
-        if host.value is not None and not self.is_ref:
-            self.json[host.prop_name] = {}
-            for key, value in host.value.items():
+    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: typing.Any, prop_name: str) -> None:
+        if getattr(target,prop_name) is not None and not self.is_ref:
+            self.json[prop_name] = {}
+            for key, value in getattr(target,prop_name).items():
                 writer = Writer(value, self.factory, self.refs)
                 writer.write()
-                self.json[host.prop_name][key] = writer.json
+                self.json[prop_name][key] = writer.json
 
     def write(self):
         if self.json is not None:
@@ -299,3 +287,41 @@ class Writer(serializable.Visitor[ExpectedType]):
             self.json = self.obj
 
         return self.json
+
+def to_json(factory: construction.Factory, obj, path: typing.List[typing.Any]):
+    use_path = path or []
+    if isinstance(obj, serializable.Serializable):
+        writer = Writer(obj, factory, {})
+        writer.write()
+        return writer.json
+    elif type(obj) in (list,tuple):
+        result = [ to_json(factory, obj[index], use_path + [ index ]) for index in range(len(obj)) ]
+        return result
+    elif type(obj) in (dict,):
+        result = {}
+        for prop_name, value in obj.items():
+            result[prop_name] = to_json(factory, obj[prop_name], use_path + [ prop_name ])
+        return result
+    else:
+        return obj
+
+def from_json(factory: construction.Factory, json: typing.Any):
+    if type(json) == dict and '__class__' in json and factory.has_class(json['__class__']):
+        reader = Reader(json, factory, {})
+        reader.read()
+        return reader.obj
+    elif type(json) in (list,tuple):
+        return [ from_json(factory, item) for item in json ]
+    elif type(json) == dict:
+        result = {}
+        for prop_name, value in json.items():
+            result[prop_name] = from_json(factory, json[prop_name])
+            return result
+    else:
+        return json
+
+def to_string(factory: construction.Factory, obj:serializable.Serializable) -> str:
+    return json.dumps(to_json(factory, obj, []))
+
+def from_string(factory: construction.Factory, text: str):
+    return from_json(factory, json.loads(text))

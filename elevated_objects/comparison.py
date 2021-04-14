@@ -5,7 +5,9 @@ import typing
 import enum
 
 from parts_bin.task import function_task
+from . import construction
 from . import serializable
+from . import visitor
 
 class Result(enum.Enum):
     Unknown = None
@@ -13,7 +15,7 @@ class Result(enum.Enum):
     Equal = 0
     Greater = 1
 
-class DefaultComparator(serializable.Visitor):
+class DefaultComparator(visitor.Visitor):
     a: serializable.Serializable
     b: serializable.Serializable    
     result: Result
@@ -23,16 +25,16 @@ class DefaultComparator(serializable.Visitor):
         self.b = b
         self.result = Result.Unknown
 
-    @function_task(logMethod=True)
+    @function_task()
     def begin(self, obj: serializable.ExpectedType, parent_prop_name: str = None) -> Result:
         self.result = Result.Equal
         return self.result
 
-    @function_task(logMethod=True)
+    @function_task()
     def end(self, obj: serializable.ExpectedType) -> Result:
         return self.result
 
-    @function_task(logMethod=True)
+    @function_task()
     def verbatim(self, 
         data_type: typing.Type, 
         target: serializable.Serializable, 
@@ -56,7 +58,7 @@ class DefaultComparator(serializable.Visitor):
             self.result = Result.Greater
         return self.result
 
-    @function_task(logMethod=True)
+    @function_task()
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], serializable.PropType ] = None) -> Result:
         if self.result != Result.Equal:
             return self.result
@@ -82,13 +84,13 @@ class DefaultComparator(serializable.Visitor):
             self.result = Result.Greater
         return self.result
 
-    def scalar(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
-    def array(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
-    def map(self, key_type: typing.Type, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
 @function_task(logMethod=True)

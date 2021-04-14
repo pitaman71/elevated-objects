@@ -5,16 +5,21 @@ import datetime
 import random
 import sys
 import typing
+import functools
+import multidict
 
 from . import construction
 from . import serializable
+from . import json_marshal
+from . import visitor
+
 from parts_bin.task import function_task
 from lorem_text import lorem
 
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
 PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
-class PropertyCollector(serializable.Visitor[ExpectedType]):
+class PropertyCollector(visitor.Visitor[ExpectedType]):
     prop_names: typing.Set[str]
 
     def __init__(self):
@@ -38,22 +43,97 @@ class PropertyCollector(serializable.Visitor[ExpectedType]):
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
         self.prop_names.add(prop_name)
 
-    def scalar(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+        self.prop_names.add(prop_name)
+        pass
+
+    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         #self.prop_names.add(prop_name)
         pass
 
-    def array(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         #self.prop_names.add(prop_name)
         pass
 
-    def map(self, key_type: typing.Type, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
-        #self.prop_names.add(prop_name)
-        pass
+ElementType = typing.TypeVar('ElementType', bound=serializable.Serializable)
+class ScalarMutator(typing.Generic[ElementType]):
+    mutator: Mutator
+    element_type: construction.Builder
+    before: ElementType | None
+    after: ElementType | None
+    weights: typing.Dict[ str, float ]
 
-class PropertyMutator(serializable.Visitor):
+    def __init__(self, 
+        mutator: Mutator,
+        element_type: construction.Builder, 
+        before: ElementType | None
+    ):
+        self.mutator = mutator
+        self.element_type = element_type
+        self.before = before
+        self.after = None
+
+        self.weights = {
+            'make': 1.0,
+            'pick': 1.0,
+            'modify': 1.0,
+            'clear': 1.0
+        }
+
+    def __call__(self) -> ElementType | None:
+        class_spec = self.mutator.factory.get_class_spec(self.element_type.make())
+        if self.before is None:
+            self.weights['clear'] = 0.0
+        if not self.mutator.can_pick(class_spec):
+            self.weights['pick'] = 0.0
+
+        total = functools.reduce(
+            lambda total, kind: self.weights[kind] + total,
+            self.weights.keys(), 
+            0.0
+        )
+
+        if total == 0.0:
+            raise RuntimeError(f"No randomization strategy is available")
+        
+        class Iterator:
+            selected: str | None
+            remainder: float
+
+            def __init__(self, selected: str | None, remainder: float):
+                self.selected = selected
+                self.remainder = remainder
+
+            def next(self, weight: float):
+                return Iterator(self.selected, self.remainder - weight)
+
+        kind_selector = functools.reduce(
+            lambda iterator, kind: Iterator(kind, 0.0) if self.weights[kind] > iterator.remainder else iterator.next(self.weights[kind]),
+            self.weights.keys(),
+            Iterator(None, random.uniform(0.0,total))
+        )
+
+        if kind_selector == 'make':
+            made = self.mutator.make(class_spec)
+            self.after = typing.cast(ElementType, self.mutator.element(made))
+        elif kind_selector == 'pick':
+            if not self.mutator.can_pick(class_spec):
+                raise RuntimeError('No samples from which to pick')
+            self.after = typing.cast(ElementType, self.mutator.pick(class_spec))
+        elif kind_selector == 'modify':
+            if self.before is None:
+                raise RuntimeError('Logic error')
+            self.after = typing.cast(ElementType, self.mutator.element(self.before))
+        elif kind_selector == 'clear':
+            self.after = None
+        return self.after
+
+class PropertyMutator(visitor.Visitor):
+    mutator: Mutator
     prop_name: str
 
-    def __init__(self, prop_name: str):
+    def __init__(self, mutator: Mutator, prop_name: str):
+        self.mutator = mutator
         self.prop_name = prop_name
 
     def begin(self, obj: serializable.ExpectedType, parent_prop_name: str = None) -> None:
@@ -138,13 +218,20 @@ class PropertyMutator(serializable.Visitor):
             lambda: set(prop_name,)
         )
 
-    def scalar(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+        if prop_name != self.prop_name:
+            return
+        element_class_spec = self.mutator.factory.get_class_spec(element_builder.make())
+        mutator = ScalarMutator(self.mutator,
+            element_builder,
+            getattr(target, prop_name)
+        )
+        setattr(target, prop_name, mutator())
+
+    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         raise RuntimeError('Unsupported Method')
 
-    def array(self, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
-        raise RuntimeError('Unsupported Method')
-
-    def map(self, key_type: typing.Type, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         raise RuntimeError('Unsupported Method')
 
 class ElementWeights:
@@ -153,17 +240,18 @@ class ElementWeights:
     select: float
     mutate: float
 
-SymbolTable = typing.Dict[ str, serializable.Cloneable ]
-class Mutator:
-    factory: construction.Factory
+SymbolTable = typing.Dict[ str, serializable.Serializable ]
+class SymbolTableMutator:
+    mutator: Mutator
     before: SymbolTable
     after: typing.Union[SymbolTable, None]
 
     def __init__(self, 
-        factory: construction.Factory,
+        mutator: Mutator,
         before: SymbolTable
     ):
-        self.factory = factory
+        self.mutator = mutator
+        self.pool = multidict.MultiDict()
         self.before = before
         self.after = None
 
@@ -172,23 +260,42 @@ class Mutator:
         self.after = dict(self.before)
 
         # choose a symbol to mutate
-        chosen_symbol = random.choice(list(self.after.keys()))
+        chosen_symbol_name = random.choice(list(self.after.keys()))
 
-        self.mutate_symbol(chosen_symbol)
+        self.after[chosen_symbol_name] = self.mutator.element(self.before[chosen_symbol_name])
         return (self.before, self.after)
 
-    def mutate_symbol(self, chosen_symbol_name: str):
-        chosen_symbol = self.after[chosen_symbol_name]
-        chosen_symbol = chosen_symbol.clone(chosen_symbol)
-        self.after[chosen_symbol_name] = chosen_symbol
+class Mutator:
+    factory: construction.Factory
+    pool: multidict.MultiDict[serializable.Serializable]
+
+    def __init__(self, 
+        factory: construction.Factory
+    ):
+        self.factory = factory
+        self.pool = multidict.MultiDict()
+
+    def make(self, class_spec: str) -> serializable.Serializable:
+        return self.factory.make(class_spec)
+
+    def can_pick(self, class_spec: str) -> bool:
+        return class_spec in self.pool
+
+    def pick(self, class_spec: str) -> serializable.Serializable:
+        return random.choice(self.pool.getall(class_spec))
+
+    def element(self, before: serializable.Serializable) -> serializable.Serializable:
+        class_spec = self.factory.get_class_spec(before)
+        after = self.factory.make(class_spec)
+        self.pool.add(class_spec, after)
+        after.marshal(json_marshal.Initializer(before))
 
         # choose a property to mutate
         prop_name_collector = PropertyCollector()
-        chosen_symbol.marshal(prop_name_collector)
+        after.marshal(prop_name_collector)
         chosen_prop_name = random.choice(list(prop_name_collector.prop_names))
 
         # mutate that one property
-        prop_mutator = PropertyMutator(chosen_prop_name)
-        chosen_symbol.marshal(prop_mutator)
-
-        
+        prop_mutator = PropertyMutator(self, chosen_prop_name)
+        after.marshal(prop_mutator)
+        return after
