@@ -250,68 +250,68 @@ class TestVerbatimString(unittest.TestCase):
     def get_static_pattern_path(self):
         return 'test_serializable.TestVerbatimString.json'
 
-# class TestScalar(unittest.TestCase, serializable.Serializable):
-#     dirty: bool
-#     blank: typing.Union[Scalar, None]
-#     mutation_count: int
-#     mutations: typing.List[Scalar]
+class TestScalar(unittest.TestCase, serializable.Serializable):
+    dirty: bool
+    blank: typing.Union[Scalar, None]
+    mutation_count: int
+    mutations: typing.List[Scalar]
 
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.dirty = False
-#         self.blank = None
-#         self.mutation_count = 50
-#         self.mutations = []
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dirty = False
+        self.blank = None
+        self.mutation_count = 50
+        self.mutations = []
 
-#     def randomize(self):
-#         self.blank = Scalar()
-#         last = self.blank
-#         mutator = configuration.Mutator(factory)
-#         for index in range(self.mutation_count):
-#             st_mutator = configuration.SymbolTableMutator(mutator, {
-#                 'a': last
-#             })
-#             st_mutator.done()
-#             last = typing.cast(Scalar, st_mutator.after['a'])
-#             self.mutations.append(last)
+    def randomize(self):
+        self.blank = Scalar()
+        last = self.blank
+        mutator = configuration.Mutator(factory)
+        for index in range(self.mutation_count):
+            st_mutator = configuration.SymbolTableMutator(mutator, {
+                'a': last
+            })
+            st_mutator.done()
+            last = typing.cast(Scalar, st_mutator.after['a'])
+            self.mutations.append(last)
 
-#     def marshal(self, visitor: visitor.Visitor):
-#         visitor.begin(self)
-#         visitor.scalar(Primitives, self, 'blank')
-#         visitor.primitive(int, self, 'mutation_count')
-#         visitor.array(Primitives, self, 'mutations')
-#         visitor.end(self)
+    def marshal(self, visitor: visitor.Visitor):
+        visitor.begin(self)
+        visitor.scalar(Primitives, self, 'blank')
+        visitor.primitive(int, self, 'mutation_count')
+        visitor.array(Primitives, self, 'mutations')
+        visitor.end(self)
 
-#     def test_mutate_compare(self):
-#         for index in range(self.mutation_count):
-#             self.assertTrue(comparison.cmp(self.mutations[index], self.mutations[index]) == 0)
-#             if index == 0:
-#                 self.assertTrue(comparison.cmp(typing.cast(Primitives, self.blank), self.mutations[index]) != 0)
-#             else:
-#                 self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {index-1} vs. {index} in {self.get_static_pattern_path()}")
+    def test_mutate_compare(self):
+        for index in range(self.mutation_count):
+            self.assertTrue(comparison.cmp(self.mutations[index], self.mutations[index]) == 0)
+            if index == 0:
+                self.assertTrue(comparison.cmp(typing.cast(Primitives, self.blank), self.mutations[index]) != 0)
+            else:
+                self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {index-1} vs. {index} in {self.get_static_pattern_path()}")
 
-#     def get_static_pattern_path(self):
-#         return 'test_serializable.TestScalar.json'
+    def get_static_pattern_path(self):
+        return 'test_serializable.TestScalar.json'
 
-#     def setUp(self):
-#         if self.blank is not None:
-#             self.dirty = False
-#         elif(os.path.exists(self.get_static_pattern_path())):
-#             self.dirty = False
-#             with open(self.get_static_pattern_path(), 'rt') as fp:
-#                 obj = json.load(fp)
-#                 reader = json_marshal.Reader(obj, factory, {})
-#                 self.marshal(reader)
-#         else:
-#             self.dirty = True
-#             self.randomize()
+    def setUp(self):
+        if self.blank is not None:
+            self.dirty = False
+        elif(os.path.exists(self.get_static_pattern_path())):
+            self.dirty = False
+            with open(self.get_static_pattern_path(), 'rt') as fp:
+                obj = json.load(fp)
+                reader = json_marshal.Reader(obj, factory, {})
+                self.marshal(reader)
+        else:
+            self.dirty = True
+            self.randomize()
 
-#     def tearDown(self):
-#         if self.dirty:
-#             with open(self.get_static_pattern_path(), 'wt') as fp:
-#                 writer = json_marshal.Writer(self, factory, {})
-#                 writer.write()
-#                 json.dump(writer.json, fp, indent=2)
+    def tearDown(self):
+        if self.dirty:
+            with open(self.get_static_pattern_path(), 'wt') as fp:
+                writer = json_marshal.Writer(self, factory, {})
+                writer.write()
+                json.dump(writer.json, fp, indent=2)
 
 factory.add_value_makers(['test_serializable'], {
     'Verbatim.int': lambda: Verbatim(int),
