@@ -84,14 +84,74 @@ class DefaultComparator(visitor.Visitor):
             self.result = Result.Greater
         return self.result
 
-    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
-        pass
+    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> Result:
+        if self.result != Result.Equal:
+            return self.result
+        a_has_prop = hasattr(self.a, prop_name)
+        b_has_prop = hasattr(self.b, prop_name)
+        if not a_has_prop and not b_has_prop:
+            return self.result
+        if not a_has_prop and b_has_prop:
+            self.result = Result.Less
+        if a_has_prop and not b_has_prop:
+            self.result = Result.Greater
+        a_prop = getattr(self.a, prop_name)
+        b_prop = getattr(self.b, prop_name)
+        if not a_prop is None and b_prop is None:
+            self.result = Result.Less
+        elif a_prop is None and not b_prop is None:
+            self.result = Result.Greater
+        elif a_prop is None and b_prop is None:
+            pass
+        elif id(a_prop) < id(b_prop):
+            self.result = Result.Less
+        elif id(a_prop) > id(b_prop):
+            self.result = Result.Greater
+        return self.result
 
-    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
-        pass
+    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> Result:
+        if self.result != Result.Equal:
+            return self.result
+        a_has_prop = hasattr(self.a, prop_name)
+        b_has_prop = hasattr(self.b, prop_name)
+        if not a_has_prop and not b_has_prop:
+            return self.result
+        if not a_has_prop and b_has_prop:
+            self.result = Result.Less
+        if a_has_prop and not b_has_prop:
+            self.result = Result.Greater
+        a_prop = [ id(item) for item in getattr(self.a, prop_name) ]
+        b_prop = [ id(item) for item in getattr(self.b, prop_name) ]
+        if a_prop < b_prop:
+            self.result = Result.Less
+        elif a_prop > b_prop:
+            self.result = Result.Greater
+        return self.result
 
-    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
-        pass
+    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> Result:
+        if self.result != Result.Equal:
+            return self.result
+        a_has_prop = hasattr(self.a, prop_name)
+        b_has_prop = hasattr(self.b, prop_name)
+        if not a_has_prop and not b_has_prop:
+            return self.result
+        if not a_has_prop and b_has_prop:
+            self.result = Result.Less
+        if a_has_prop and not b_has_prop:
+            self.result = Result.Greater
+        a_prop = getattr(self.a, prop_name)
+        b_prop = getattr(self.b, prop_name)
+        if list(a_prop.keys()) < list(b_prop.keys()):
+            self.result = Result.Less
+        elif list(a_prop.keys()) > list(b_prop.keys()):
+            self.result = Result.Greater
+        a_values = [ a_prop[key] for key in a_prop.keys() ]
+        b_values = [ b_prop[key] for key in b_prop.keys() ]
+        if a_values < b_values:
+            self.result = Result.Less
+        elif a_values > b_values:
+            self.result = Result.Greater
+        return self.result
 
 @function_task(logMethod=True)
 def cmp(a: serializable.Serializable, b: serializable.Serializable):

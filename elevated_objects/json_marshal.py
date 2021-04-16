@@ -11,74 +11,6 @@ from . import visitor
 
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
 
-class Initializer(visitor.Visitor[ExpectedType]):
-    initializers: typing.List[typing.Any]
-    obj: ExpectedType
-
-    def begin(self, obj: ExpectedType, parent_prop_name: str = None):
-        self.obj = obj
-
-    def end(self, obj: ExpectedType):
-        pass
-
-    def __init__(self, *initializers):
-        self.initializers = list(initializers)
-
-    def verbatim(self,
-        data_type: typing.Type, 
-        target: serializable.Serializable, 
-        get_value: typing.Callable [ [serializable.Serializable], typing.Any ],
-        set_value: typing.Callable [ [serializable.Serializable, typing.Any ], None],
-        get_prop_names: typing.Callable [ [], typing.Set[str] ]
-    ) -> None:
-        new_value = functools.reduce(
-            lambda result, initializer: result if initializer is None else get_value(initializer),
-            self.initializers,
-            None)
-        if new_value is not None:
-            set_value(target, new_value)
-
-    def primitive(self, data_type: typing.Type, target, prop_name: str, fromString: typing.Callable[ [str], typing.Any] = None):
-        new_value = functools.reduce(
-            lambda result, initializer: getattr(initializer, prop_name) or result,
-            self.initializers,
-            None)
-        if new_value is not None:
-            if isinstance(new_value, str) and fromString is not None:
-                typed_value = fromString(new_value)
-            else: 
-                typed_value = new_value
-            setattr(target, prop_name, typed_value)
-
-    def scalar(self, element_builder: construction.Builder, target, prop_name: str):
-        new_values = [
-            getattr(initializer, prop_name) for initializer in self.initializers if hasattr(initializer, prop_name)
-        ]
-        if len(new_values) == 1:
-            return setattr(target, prop_name, new_values[0])
-        elif len(new_values) > 1:
-            return setattr(target, prop_name, new_values[0].clone(*new_values))
-
-    def array(self, element_builder: construction.Builder, target, prop_name: str):
-        has_property = [
-            initializer for initializer in self.initializers if hasattr(initializer, prop_name)
-        ]
-        max_length = functools.reduce(
-            lambda result, initializer:
-                max(len(getattr(initializer, prop_name)), result),
-            has_property, 0)
-
-        if max_length > 0:
-            new_array_value = []
-            for index in range(max_length):
-                element_values = [ getattr(initializer, prop_name)[index] for initializer in has_property if len(initializer) > index and getattr(initializer, prop_name) is not None ]
-                new_element_value = element_values[0].clone(*element_values) if len(element_values) > 0 else None
-                new_array_value.append(new_element_value)
-            setattr(target, prop_name, new_array_value)
-
-    def init(self, target: serializable.Serializable):
-        target.marshal(self)
-
 RefTable = typing.Dict[ str, typing.Dict[ int, serializable.Serializable ] ]
 class Reader(visitor.Visitor[ExpectedType]):
     json: typing.Any
@@ -209,7 +141,7 @@ class Writer(visitor.Visitor[ExpectedType]):
         self.json = None
         self.factory = factory
         self.refs = refs if refs is not None else dict()
-        self.is_ref = False
+        self.is_ref = None
 
     def begin(self, obj: ExpectedType, parent_prop_name: str = None):
         # Must be called at the start of any marshal method. Tells this object that we are visiting the body of that object next"""
@@ -256,6 +188,8 @@ class Writer(visitor.Visitor[ExpectedType]):
         # For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
+        if self.is_ref: return
+
         if getattr(target,prop_name) is not None and not self.is_ref:
             writer = Writer(getattr(target,prop_name), self.factory, self.refs)
             writer.write()
@@ -265,6 +199,8 @@ class Writer(visitor.Visitor[ExpectedType]):
         # For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         # Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
+        if self.is_ref: return
+
         if getattr(target,prop_name) is not None and not self.is_ref:
             self.json[prop_name] = []
             for item in getattr(target,prop_name):
@@ -273,6 +209,8 @@ class Writer(visitor.Visitor[ExpectedType]):
                 self.json[prop_name].append(writer.json)
 
     def map(self, key_type: typing.Type, element_builder: construction.Builder, target: typing.Any, prop_name: str) -> None:
+        if self.is_ref: return
+
         if getattr(target,prop_name) is not None and not self.is_ref:
             self.json[prop_name] = {}
             for key, value in getattr(target,prop_name).items():

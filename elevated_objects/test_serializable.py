@@ -12,25 +12,19 @@ from . import serializable
 from . import json_marshal
 from . import visitor
 
-class Primitives(serializable.Cloneable):
+class Primitives(serializable.Serializable):
     prop_int: typing.Union[ int, None ]
     prop_float: typing.Union[ float, None ]
     prop_string: typing.Union[ str, None ]
 
     @classmethod
     def Builder(cls):
-        return construction.Builder(lambda: Primitives())
+        return construction.Builder(lambda: cls())
 
     def __init__(self):
         self.prop_int = None
         self.prop_float = None
         self.prop_string = None
-
-    def clone(self, *initializers: object) -> serializable.Serializable:
-        result = Primitives()
-        initializer = json_marshal.Initializer(*initializers)
-        result.marshal(initializer)
-        return result
 
     def marshal(self, visitor: visitor.Visitor):
         visitor.begin(self)
@@ -41,23 +35,17 @@ class Primitives(serializable.Cloneable):
 
 DataType = typing.TypeVar('DataType', int, float, str)
 
-class Verbatim(serializable.Cloneable):
+class Verbatim(serializable.Serializable):
     data_type: typing.Type
     prop: typing.Union[ int, float, str, None]
 
     @classmethod
     def Builder(cls, data_type: typing.Type):
-        return construction.Builder(lambda: Verbatim(data_type))
+        return construction.Builder(lambda: cls(data_type))
 
     def __init__(self, data_type: typing.Type):
         self.data_type = data_type
         self.prop = None
-
-    def clone(self, *initializers: object) -> serializable.Serializable:
-        result = Verbatim(self.data_type)
-        initializer = json_marshal.Initializer(*initializers)
-        result.marshal(initializer)
-        return result
 
     def marshal(self, visitor: visitor.Visitor):
         visitor.begin(self)
@@ -70,26 +58,22 @@ class Verbatim(serializable.Cloneable):
         )
         visitor.end(self)
 
-class Scalar(serializable.Cloneable):
+class Scalar(serializable.Serializable):
     prop_primitives: typing.Union[Primitives, None]
-    prop_verbatim: typing.Union[Verbatim, None]
+    prop_array: typing.Union[typing.List, None]
 
     @classmethod
     def Builder(cls):
-        return construction.Builder(lambda: Scalar())
+        return construction.Builder(lambda: cls())
 
     def __init__(self):
         self.prop_primitives = None
-
-    def clone(self, *initializers: object) -> serializable.Serializable:
-        result = self.__class__()
-        initializer = json_marshal.Initializer(*initializers)
-        result.marshal(initializer)
-        return result
+        self.prop_array = []
 
     def marshal(self, visitor: visitor.Visitor):
         visitor.begin(self)
         visitor.scalar(Primitives.Builder(), self, 'prop_primitives')
+        visitor.array(Scalar.Builder(), self, 'prop_array')
         visitor.end(self)
 
 factory = construction.Factory()
@@ -102,7 +86,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
 
     @classmethod
     def Builder(cls):
-        return construction.Builder(lambda: TestPrimitives())
+        return construction.Builder(lambda: cls())
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -116,12 +100,15 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
         last = self.blank
         mutator = configuration.Mutator(factory)
         for index in range(self.mutation_count):
+            mutator.push_strategy(f"TestPrimitives.{index}")
             st_mutator = configuration.SymbolTableMutator(mutator, {
                 'a': last
             })
-            st_mutator.done()
+            st_mutator()
             last = typing.cast(Primitives, st_mutator.after['a'])
+            print(f"DEBUG: append {id(last)}")
             self.mutations.append(last)
+            mutator.pop_strategy(f"TestPrimitives.{index}")
 
     def marshal(self, visitor: visitor.Visitor):
         visitor.begin(self)
@@ -136,7 +123,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
             if index == 0:
                 self.assertTrue(comparison.cmp(typing.cast(Primitives, self.blank), self.mutations[index]) != 0)
             else:
-                self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {index-1} vs. {index} in {self.get_static_pattern_path()}")
+                self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {id(self.mutations[index-1])} vs. {id(self.mutations[index])} in {self.get_static_pattern_path()}")
 
     def get_static_pattern_path(self):
         return 'test_serializable.TestPrimitives.json'
@@ -170,7 +157,7 @@ class GenericTestVerbatim(serializable.Serializable):
 
     @classmethod
     def Builder(cls, data_type: typing.Type):
-        return construction.Builder(lambda: GenericTestVerbatim(data_type))
+        return construction.Builder(lambda: cls(data_type))
 
     def __init__(self, data_type: typing.Type):
         self.data_type = data_type
@@ -187,7 +174,7 @@ class GenericTestVerbatim(serializable.Serializable):
             st_mutator = configuration.SymbolTableMutator(mutator, {
                 'a': last
             })
-            st_mutator.done()
+            st_mutator()
             last = typing.cast(Verbatim, st_mutator.after['a'])
             self.mutations.append(last)
 
@@ -268,8 +255,11 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
         last = self.blank
         mutator = configuration.Mutator(factory)
         for index in range(self.mutation_count):
-            st_mutator = configuration.ScalarMutator(mutator, Scalar.Builder(), last)
-            last = typing.cast(Scalar, st_mutator())
+            st_mutator = configuration.SymbolTableMutator(mutator, {
+                'a': last
+            })
+            st_mutator()
+            last = typing.cast(Scalar, st_mutator.after['a'])
             self.mutations.append(last)
 
     def marshal(self, visitor: visitor.Visitor):
@@ -283,9 +273,9 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
         for index in range(self.mutation_count):
             self.assertTrue(comparison.cmp(self.mutations[index], self.mutations[index]) == 0)
             if index == 0:
-                self.assertTrue(comparison.cmp(typing.cast(Scalar, self.blank), self.mutations[index]) != 0)
+                self.assertTrue(comparison.cmp(typing.cast(Scalar, self.blank), self.mutations[index]) != 0, f"Expected difference was not detected while comparing <blank> vs. {index} in {self.get_static_pattern_path()}")
             else:
-                self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {index-1} vs. {index} in {self.get_static_pattern_path()}")
+                self.assertTrue(comparison.cmp(self.mutations[index-1], self.mutations[index]) != 0, f"Expected difference was not detected while comparing {id(self.mutations[index-1])} vs. {id(self.mutations[index])} in {self.get_static_pattern_path()}")
 
     def get_static_pattern_path(self):
         return 'test_serializable.TestScalar.json'

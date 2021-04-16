@@ -9,11 +9,6 @@ class Serializable(abc.ABC):
     def marshal(self, visitor: Visitor) -> None:
         pass
         
-class Cloneable(Serializable):
-    @abc.abstractmethod
-    def clone(self, *initializers: object) -> Cloneable:
-        pass
-
 ExpectedType = typing.TypeVar('ExpectedType', bound=Serializable)
 PropType = typing.TypeVar('PropType')
 
