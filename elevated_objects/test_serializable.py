@@ -61,6 +61,7 @@ class Verbatim(serializable.Serializable):
 class Scalar(serializable.Serializable):
     prop_primitives: typing.Union[Primitives, None]
     prop_array: typing.Union[typing.List, None]
+    prop_map: typing.Union[typing.Dict, None]
 
     @classmethod
     def Builder(cls):
@@ -69,11 +70,13 @@ class Scalar(serializable.Serializable):
     def __init__(self):
         self.prop_primitives = None
         self.prop_array = []
+        self.prop_map = {}
 
     def marshal(self, visitor: visitor.Visitor):
         visitor.begin(self)
         visitor.scalar(Primitives.Builder(), self, 'prop_primitives')
         visitor.array(Scalar.Builder(), self, 'prop_array')
+        visitor.map(str, Scalar.Builder(), self, 'prop_map')
         visitor.end(self)
 
 factory = construction.Factory()

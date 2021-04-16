@@ -80,7 +80,7 @@ class PropertyCollector(visitor.Visitor[ExpectedType]):
         pass
 
     def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
-        #self.prop_names.add(prop_name)
+        self.prop_names.add(prop_name)
         pass
 
 ElementType = typing.TypeVar('ElementType', bound=serializable.Serializable)
@@ -204,11 +204,7 @@ class ArrayMutator(typing.Generic[ElementType]):
             'reverse.insert': 0,
             'stutter.front': 1.0,
             'stutter.back': 1.0,
-            'stutter.insert': 1.0,
-            'swap.ends': 1.0,
-            'swap.front': 1.0,
-            'swap.back': 1.0,
-            'swap.insert': 0.0
+            'stutter.insert': 1.0
         }
 
     def __call__(self) -> typing.List[ElementType] | None:
@@ -387,48 +383,122 @@ class ArrayMutator(typing.Generic[ElementType]):
             segment = list(chosen_copies * tuple(self.before[0:chosen_length]))
             self.after = self.before[:chosen_index] + segment + self.before[chosen_index+chosen_length:]
             self.mutator.pop_strategy(location)
-        elif chosen_kind == 'swap.ends':
-            location = source_code.Line()
-            self.mutator.push_strategy(location)
-            chosen_length = int(random.randint(1, int(len(self.before)/2)))
-            total_length = len(self.before)
-            back = self.before[total_length - chosen_length:]
-            front = self.before[0:chosen_length]
-            middle = self.before[chosen_length:total_length - (2*chosen_length)]
-            self.after = back + middle + front
-            self.mutator.pop_strategy(location)
-        elif chosen_kind == 'swap.front':
-            location = source_code.Line()
-            self.mutator.push_strategy(location)
-            chosen_length = int(random.randint(1, int(len(self.before)/2) - 1))
-            total_length = len(self.before)
-            front = self.before[0:chosen_length]
-            rest = self.before[chosen_length:]
-            chosen_index = int(random.randint(0, total_length - 2*chosen_length - 1))
-            left = rest[0:chosen_index]
-            middle = rest[chosen_index:chosen_index+chosen_length]
-            right = rest[chosen_index+chosen_length:]
-            self.after = middle + left + front + right
-            self.mutator.pop_strategy(location)
-        elif chosen_kind == 'swap.back':
-            location = source_code.Line()
-            self.mutator.push_strategy(location)
-            chosen_length = int(random.randint(1, int(len(self.before)/2) - 1))
-            total_length = len(self.before)
-            back = self.before[(total_length - chosen_length):]
-            rest = self.before[0:(total_length - chosen_length)]
-            chosen_index = int(random.randint(0, total_length - 2*chosen_length - 1))
-            left = rest[0:chosen_index]
-            middle = rest[chosen_index:chosen_index+chosen_length]
-            right = rest[chosen_index+chosen_length:]
-            self.after = left + back + right + middle
-            self.mutator.pop_strategy(location)
         else:
             raise RuntimeError(f'Unsupported method {chosen_kind}')
 
         if(self.after is not None and len([ item for item in self.after if item is None])) > 0:
             raise RuntimeError('Array mutator introduced a NULL {location}')
         return self.after
+
+class MapMutator(typing.Generic[ElementType]):
+    mutator: Mutator
+    element_type: construction.Builder
+    before: typing.Dict[str, ElementType]
+    after: typing.Dict[str, ElementType] | None
+    keys: typing.Union[typing.List[str], None]
+    weights: typing.Dict[ str, float ]
+
+    def __init__(self, 
+        mutator: Mutator,
+        element_type: construction.Builder, 
+        before: typing.Dict[str, ElementType],
+        keys: typing.List[str] = None
+    ):
+        self.mutator = mutator
+        self.element_type = element_type
+        self.before = before
+        self.after = None
+        self.keys = keys
+
+        self.weights = {
+            'clear': 1.0,
+            'modify': 1.0,
+            'make.replace': 1.0,
+            'pick.replace': 1.0,
+            'make.insert': 1.0,
+            'pick.insert': 1.0,
+            'pop': 1.0
+        }
+
+    def __call__(self) -> typing.Dict[str, ElementType] | None:
+        class_spec = self.mutator.factory.get_class_spec(self.element_type.make())
+
+        if(len(self.before.keys()) == 0):
+            self.weights['clear'] = 0
+            self.weights['modify'] = 0
+            self.weights['pop'] = 0
+            self.weights['make.replace'] = 0
+            self.weights['pick.replace'] = 0
+        if(self.keys is not None and len(self.keys) == len(self.before.keys())):
+            self.weights['make.insert'] = 0
+            self.weights['pick.insert'] = 0
+
+        chosen_kind = weighted_random(
+            list(self.weights.keys()),
+            lambda key: self.weights[key]
+        )
+
+        if chosen_kind == 'clear':
+            location = source_code.Line()
+            self.mutator.push_strategy(location)
+            self.after = dict()
+            self.mutator.pop_strategy(location)
+        elif chosen_kind == 'modify':
+            if len(self.before.keys()) == 0:
+                raise RuntimeError('Logic error')
+            location = source_code.Line()
+            self.mutator.push_strategy(location)
+            chosen_key = random.choice(list(self.before.keys()))
+            self.after = dict(self.before)
+            with self.mutator.modify(self.before[chosen_key]) as ancestor:
+                self.after[chosen_key] = typing.cast(ElementType, ancestor.target)
+            self.mutator.pop_strategy(location)
+        elif chosen_kind == 'pop':
+            if len(self.before.keys()) == 0:
+                raise RuntimeError('Logic error')
+            location = source_code.Line()
+            self.mutator.push_strategy(location)
+            chosen_key = random.choice(list(self.before.keys()))
+            self.after = dict(self.before)
+            del self.after[chosen_key]
+            self.mutator.pop_strategy(location)
+        elif chosen_kind == 'make.replace' or chosen_kind == 'make.insert':
+            location = source_code.Line()
+            self.mutator.push_strategy(location)
+            if chosen_kind == 'make.replace':
+                if len(self.before.keys()) == 0:
+                    raise RuntimeError('Logic error')
+                chosen_key = random.choice(list(self.before.keys()))
+            elif self.keys is not None:
+                chosen_key = random.choice([ key for key in self.keys if key not in self.before])
+            else:
+                chosen_key = lorem.words(1)
+            self.after = dict(self.before)
+            with self.mutator.make(class_spec) as ancestor1:
+                with self.mutator.modify(ancestor1.target) as ancestor2:
+                    self.after[chosen_key] = typing.cast(ElementType, ancestor2.target)
+            self.mutator.pop_strategy(location)
+        elif chosen_kind == 'pick.replace' or chosen_kind == 'pick.insert':
+            location = source_code.Line()
+            self.mutator.push_strategy(location)
+            if chosen_kind == 'pick.replace':
+                if len(self.before) == 0:
+                    raise RuntimeError('Logic error')
+                chosen_key = random.choice(list(self.before.keys()))
+            elif self.keys is not None:
+                chosen_key = random.choice([ key for key in self.keys if key not in self.before])
+            else:
+                chosen_key = lorem.words(1)
+            self.after = dict(self.before)
+            with self.mutator.pick(class_spec) as ancestor1:
+                with self.mutator.modify(ancestor1.target) as ancestor2:
+                    self.after[chosen_key] = typing.cast(ElementType, ancestor2.target)
+            self.mutator.pop_strategy(location)
+        else:
+            raise RuntimeError(f'Unsupported method {chosen_kind}')
+
+        return self.after
+        
 
 class PropertyMutator(visitor.Visitor):
     mutator: Mutator
@@ -468,7 +538,7 @@ class PropertyMutator(visitor.Visitor):
                     lambda: int(random.randint(-127,256))
                 ])
                 after = gen()
-            print(f"DEBUG: int value {before} -> {after}")
+            print(f"DEBUG: {id(target)} int value {before} -> {after}")
             set_value(target, after)
             self.mutator.pop_strategy(location)
         elif data_type == float:
@@ -570,7 +640,17 @@ class PropertyMutator(visitor.Visitor):
         self.mutator.pop_strategy(location)
 
     def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
-        raise RuntimeError('Unsupported Method')
+        if prop_name != self.prop_name:
+            return
+        self.count += 1
+        location = source_code.Line()
+        self.mutator.push_strategy(location)
+        mutator = MapMutator(self.mutator,
+            element_builder,
+            getattr(target, prop_name)
+        )
+        setattr(target, prop_name, mutator())
+        self.mutator.pop_strategy(location)
 
 class ElementWeights:
     nullify: float

@@ -145,8 +145,8 @@ class DefaultComparator(visitor.Visitor):
             self.result = Result.Less
         elif list(a_prop.keys()) > list(b_prop.keys()):
             self.result = Result.Greater
-        a_values = [ a_prop[key] for key in a_prop.keys() ]
-        b_values = [ b_prop[key] for key in b_prop.keys() ]
+        a_values = [ id(a_prop[key]) for key in a_prop.keys() ]
+        b_values = [ id(b_prop[key]) for key in b_prop.keys() ]
         if a_values < b_values:
             self.result = Result.Less
         elif a_values > b_values:
