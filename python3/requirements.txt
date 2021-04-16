@@ -1,0 +1,12 @@
+arrow==1.0.3
+build==0.3.1.post1
+click==7.1.2
+lorem-text==1.5
+multidict==5.1.0
+packaging==20.9
+parts-bin @ file:///Users/pitaman/Documents/sand/parts-bin
+pep517==0.10.0
+pyparsing==2.4.7
+python-dateutil==2.8.1
+six==1.15.0
+toml==0.10.2
