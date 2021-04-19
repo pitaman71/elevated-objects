@@ -7,12 +7,12 @@ import json
 
 from . import construction
 from . import serializable
-from . import visitor
+from . import traversal
 
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
 
 RefTable = typing.Dict[ str, typing.Dict[ int, serializable.Serializable ] ]
-class Reader(visitor.Visitor[ExpectedType]):
+class Reader(traversal.Visitor[ExpectedType]):
     json: typing.Any
     obj: typing.Union[ExpectedType, None]
     factory: construction.Factory
@@ -128,12 +128,12 @@ class Reader(visitor.Visitor[ExpectedType]):
         else:
             raise RuntimeError(f"Cannot construct object by reading JSON: {self.jsonPreview()}")
 
-class Writer(visitor.Visitor[ExpectedType]):
+class Writer(traversal.Visitor[ExpectedType]):
     obj:ExpectedType
     json: typing.Any
     factory: construction.Factory
     refs: RefTable
-    is_ref: bool
+    is_ref: typing.Union[bool, None]
 
     # Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
     def __init__(self, obj: ExpectedType, factory: construction.Factory, refs: RefTable):
@@ -190,7 +190,7 @@ class Writer(visitor.Visitor[ExpectedType]):
 
         if self.is_ref: return
 
-        if getattr(target,prop_name) is not None and not self.is_ref:
+        if getattr(target,prop_name) is not None:
             writer = Writer(getattr(target,prop_name), self.factory, self.refs)
             writer.write()
             self.json[prop_name] = writer.json
@@ -201,7 +201,7 @@ class Writer(visitor.Visitor[ExpectedType]):
 
         if self.is_ref: return
 
-        if getattr(target,prop_name) is not None and not self.is_ref:
+        if getattr(target,prop_name) is not None:
             self.json[prop_name] = []
             for item in getattr(target,prop_name):
                 writer = Writer(item, self.factory, self.refs)
@@ -211,7 +211,7 @@ class Writer(visitor.Visitor[ExpectedType]):
     def map(self, key_type: typing.Type, element_builder: construction.Builder, target: typing.Any, prop_name: str) -> None:
         if self.is_ref: return
 
-        if getattr(target,prop_name) is not None and not self.is_ref:
+        if getattr(target,prop_name) is not None:
             self.json[prop_name] = {}
             for key, value in getattr(target,prop_name).items():
                 writer = Writer(value, self.factory, self.refs)
@@ -228,7 +228,7 @@ class Writer(visitor.Visitor[ExpectedType]):
 
         return self.json
 
-def to_json(factory: construction.Factory, obj, path: typing.List[typing.Any]):
+def to_json(factory: construction.Factory, obj: typing.Any, path: typing.List[typing.Any]):
     use_path = path or []
     if isinstance(obj, serializable.Serializable):
         writer = Writer(obj, factory, {})
@@ -260,7 +260,7 @@ def from_json(factory: construction.Factory, json: typing.Any):
     else:
         return json
 
-def to_string(factory: construction.Factory, obj:serializable.Serializable) -> str:
+def to_string(factory: construction.Factory, obj:typing.Any) -> str:
     return json.dumps(to_json(factory, obj, []))
 
 def from_string(factory: construction.Factory, text: str):

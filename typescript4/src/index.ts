@@ -1,6 +1,4 @@
-export * from './Builder';
-export * from './Factory';
+export * from './construction';
 export * as JSONMarshal from './JSONMarshal';
-export * as Property from './Property';
 export * from './Serializable';
-export * from './Visitor';
+export * from './traversal';

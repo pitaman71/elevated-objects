@@ -7,7 +7,9 @@ import enum
 from parts_bin.task import function_task
 from . import construction
 from . import serializable
-from . import visitor
+from . import traversal
+
+PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
 class Result(enum.Enum):
     Unknown = None
@@ -15,7 +17,7 @@ class Result(enum.Enum):
     Equal = 0
     Greater = 1
 
-class DefaultComparator(visitor.Visitor):
+class DefaultComparator(traversal.Visitor):
     a: serializable.Serializable
     b: serializable.Serializable    
     result: Result
@@ -59,7 +61,7 @@ class DefaultComparator(visitor.Visitor):
         return self.result
 
     @function_task()
-    def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], serializable.PropType ] = None) -> Result:
+    def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> Result:
         if self.result != Result.Equal:
             return self.result
         a_has_prop = hasattr(self.a, prop_name)

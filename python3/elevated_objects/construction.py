@@ -5,7 +5,10 @@ import typing
 import functools
 
 from . import serializable
-from . import visitor
+from . import traversal
+
+ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
+PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
 class Factory:
     spec_to_builder: typing.Dict[ str, Builder ]
@@ -36,14 +39,14 @@ class Factory:
     def make(self, class_spec:str) -> serializable.Serializable:
         return self.spec_to_builder[class_spec].make()
 
-class Initializer(visitor.Visitor[visitor.ExpectedType]):
+class Initializer(traversal.Visitor[ExpectedType]):
     initializers: typing.List[typing.Any]
-    obj: visitor.ExpectedType
+    obj: ExpectedType
 
-    def begin(self, obj: visitor.ExpectedType, parent_prop_name: str = None):
+    def begin(self, obj: ExpectedType, parent_prop_name: str = None):
         self.obj = obj
 
-    def end(self, obj: visitor.ExpectedType):
+    def end(self, obj: ExpectedType):
         pass
 
     def __init__(self, *initializers):
@@ -96,7 +99,7 @@ class Initializer(visitor.Visitor[visitor.ExpectedType]):
         if max_length > 0:
             new_array_value = []
             for index in range(max_length):
-                element_values = [ getattr(initializer, prop_name)[index] for initializer in has_property if getattr(initializer, prop_name) is not None and len(getattr(initializer, prop_name)) > index ]
+                element_values = [ getattr(initializer, prop_name)[index] for initializer in has_property if len(getattr(initializer, prop_name)) > index ]
                 if len(element_values) == 0:
                     new_element_value = None
                 elif len(element_values) == 1:
@@ -106,21 +109,41 @@ class Initializer(visitor.Visitor[visitor.ExpectedType]):
                 new_array_value.append(new_element_value)
             setattr(target, prop_name, new_array_value)
 
+    def map(self, element_builder: Builder, target, prop_name: str):
+        has_property = [
+            initializer for initializer in self.initializers if hasattr(initializer, prop_name)
+        ]
+
+        all_keys = set()
+        for initializer in has_property:
+            all_keys.update(getattr(initializer, prop_name).keys())
+        new_value = {}
+        for key in all_keys:
+            element_values = [ getattr(initializer, prop_name)[key] for initializer in has_property if prop_name in getattr(initializer, prop_name) ]
+            if len(element_values) == 0:
+                new_element_value = None
+            elif len(element_values) == 1:
+                new_element_value = element_values[0]
+            else:
+                new_element_value = element_builder.clone(*element_values)
+            new_value[key] = new_element_value
+        setattr(target, prop_name, new_value)
+
     def init(self, target: serializable.Serializable):
         target.marshal(self)
 
-class Builder(typing.Generic[serializable.ExpectedType]):
-    make_value: typing.Callable[ [], serializable.ExpectedType ]
+class Builder(typing.Generic[ExpectedType]):
+    allocator: typing.Callable[ [], ExpectedType ]
 
-    def __init__(self, make_value: typing.Callable[ [], serializable.ExpectedType ]):
-        self.make_value = make_value
+    def __init__(self, allocator: typing.Callable[ [], ExpectedType ]):
+        self.allocator = allocator
 
     def make(self):
-        result = self.make_value()
+        result = self.allocator()
         return result
 
     def clone(self, *initializers: object) -> serializable.Serializable:
-        result = self.make_value()
+        result = self.allocator()
         initializer = Initializer(*initializers)
         result.marshal(initializer)
         return result

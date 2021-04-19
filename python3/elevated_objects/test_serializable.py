@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
+
 import unittest
-import datetime
 import json
 import os
 import typing
@@ -10,7 +11,7 @@ from . import configuration
 from . import construction
 from . import serializable
 from . import json_marshal
-from . import visitor
+from . import traversal
 
 class Primitives(serializable.Serializable):
     prop_int: typing.Union[ int, None ]
@@ -26,7 +27,7 @@ class Primitives(serializable.Serializable):
         self.prop_float = None
         self.prop_string = None
 
-    def marshal(self, visitor: visitor.Visitor):
+    def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
         visitor.primitive(int, self, 'prop_int')
         visitor.primitive(float, self, 'prop_float')
@@ -47,7 +48,7 @@ class Verbatim(serializable.Serializable):
         self.data_type = data_type
         self.prop = None
 
-    def marshal(self, visitor: visitor.Visitor):
+    def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
         visitor.verbatim(
             self.data_type, 
@@ -72,7 +73,7 @@ class Scalar(serializable.Serializable):
         self.prop_array = []
         self.prop_map = {}
 
-    def marshal(self, visitor: visitor.Visitor):
+    def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
         visitor.scalar(Primitives.Builder(), self, 'prop_primitives')
         visitor.array(Scalar.Builder(), self, 'prop_array')
@@ -113,7 +114,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
             self.mutations.append(last)
             mutator.pop_strategy(f"TestPrimitives.{index}")
 
-    def marshal(self, visitor: visitor.Visitor):
+    def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
         visitor.scalar(Primitives.Builder(), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')
@@ -181,7 +182,7 @@ class GenericTestVerbatim(serializable.Serializable):
             last = typing.cast(Verbatim, st_mutator.after['a'])
             self.mutations.append(last)
 
-    def marshal(self, visitor: visitor.Visitor):
+    def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
         visitor.scalar(Verbatim.Builder(self.data_type), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')
@@ -265,7 +266,7 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
             last = typing.cast(Scalar, st_mutator.after['a'])
             self.mutations.append(last)
 
-    def marshal(self, visitor: visitor.Visitor):
+    def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
         visitor.scalar(Scalar.Builder(), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')

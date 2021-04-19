@@ -12,7 +12,7 @@ from . import construction
 from . import json_marshal
 from . import serializable
 from . import source_code
-from . import visitor
+from . import traversal
 
 from parts_bin.task import function_task
 from lorem_text import lorem
@@ -47,7 +47,7 @@ def weighted_random(keys: typing.List[str], get_weight: typing.Callable[ [str], 
         )
         return iterator.selected
 
-class PropertyCollector(visitor.Visitor[ExpectedType]):
+class PropertyCollector(traversal.Visitor[ExpectedType]):
     prop_names: typing.Set[str]
 
     def __init__(self):
@@ -500,7 +500,7 @@ class MapMutator(typing.Generic[ElementType]):
         return self.after
         
 
-class PropertyMutator(visitor.Visitor):
+class PropertyMutator(traversal.Visitor):
     mutator: Mutator
     prop_name: str
     count: int
