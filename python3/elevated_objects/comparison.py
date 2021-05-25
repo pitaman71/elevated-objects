@@ -3,21 +3,23 @@
 from __future__ import annotations
 import typing
 import enum
+import sys
 
-from code_instruments.task import function, Tally
+from code_instruments.task import function, method, Tally
 from . import construction
 from . import serializable
 from . import traversal
 
 PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
+#logger=lambda x: sys.stdout.write(x+"\n")
+logger=None
+
 class Result(enum.Enum):
     Unknown = None
     Less = -1
     Equal = 0
     Greater = 1
-
-tally = Tally()
 
 class DefaultComparator(traversal.Visitor):
     a: serializable.Serializable
@@ -29,16 +31,16 @@ class DefaultComparator(traversal.Visitor):
         self.b = b
         self.result = Result.Unknown
 
-    @function(tally)
+    @method(logger=logger)
     def begin(self, obj: serializable.ExpectedType, parent_prop_name: str = None) -> Result:
         self.result = Result.Equal
         return self.result
 
-    @function(tally)
+    @method(logger=logger)
     def end(self, obj: serializable.ExpectedType) -> Result:
         return self.result
 
-    @function(tally)
+    @method(logger=logger)
     def verbatim(self, 
         data_type: typing.Type, 
         target: serializable.Serializable, 
@@ -62,7 +64,7 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Greater
         return self.result
 
-    @function(tally)
+    @method(logger=logger)
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> Result:
         if self.result != Result.Equal:
             return self.result
@@ -88,7 +90,20 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Greater
         return self.result
 
-    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> Result:
+    @method(logger=logger)
+    def compare_elements(self, a_prop: serializable.Serializable, b_prop: serializable.Serializable):
+        if a_prop.get_global_id() is None and b_prop.get_global_id() is None:
+            sub = DefaultComparator(a_prop, b_prop)
+            a_prop.marshal(sub)
+            if sub.result != Result.Equal:
+                self.result = sub.result
+        elif a_prop.get_global_id() < b_prop.get_global_id():
+            self.result = Result.Less
+        elif a_prop.get_global_id() > b_prop.get_global_id():
+            self.result = Result.Greater
+
+    @method(logger=logger)
+    def scalar(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> Result:
         if self.result != Result.Equal:
             return self.result
         a_has_prop = hasattr(self.a, prop_name)
@@ -107,13 +122,14 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Greater
         elif a_prop is None and b_prop is None:
             pass
-        elif id(a_prop) < id(b_prop):
-            self.result = Result.Less
-        elif id(a_prop) > id(b_prop):
-            self.result = Result.Greater
+        else:
+            self.compare_elements(a_prop, b_prop)
+        if self.result == Result.Unknown:
+            self.result = Result.Equal
         return self.result
 
-    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> Result:
+    @method(logger=logger)
+    def array(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> Result:
         if self.result != Result.Equal:
             return self.result
         a_has_prop = hasattr(self.a, prop_name)
@@ -124,15 +140,21 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Less
         if a_has_prop and not b_has_prop:
             self.result = Result.Greater
-        a_prop = [ id(item) for item in getattr(self.a, prop_name) ]
-        b_prop = [ id(item) for item in getattr(self.b, prop_name) ]
-        if a_prop < b_prop:
+        a_len = len(getattr(self.a, prop_name))
+        b_len = len(getattr(self.b, prop_name))
+        if a_len < b_len:
             self.result = Result.Less
-        elif a_prop > b_prop:
+        if a_len > b_len:
             self.result = Result.Greater
+        for index in range(0, a_len):
+            if self.result == Result.Unknown:
+                self.compare_elements(getattr(self.a, prop_name)[index], getattr(self.b, prop_name)[index])
+        if self.result == Result.Unknown:
+            self.result = Result.Equal
         return self.result
 
-    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> Result:
+    @method(logger=logger)
+    def map(self, key_type: typing.Type, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> Result:
         if self.result != Result.Equal:
             return self.result
         a_has_prop = hasattr(self.a, prop_name)
@@ -149,15 +171,21 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Less
         elif list(a_prop.keys()) > list(b_prop.keys()):
             self.result = Result.Greater
-        a_values = [ id(a_prop[key]) for key in a_prop.keys() ]
-        b_values = [ id(b_prop[key]) for key in b_prop.keys() ]
-        if a_values < b_values:
+        a_keys = set([ key for key in a_prop.keys() ])
+        b_keys = set([ key for key in b_prop.keys() ])
+        if a_keys < b_keys:
             self.result = Result.Less
-        elif a_values > b_values:
+        elif a_keys > b_keys:
             self.result = Result.Greater
+        for key in a_keys:
+            if self.result == Result.Unknown:
+                self.compare_elements(getattr(self.a, prop_name)[key], getattr(self.b, prop_name)[key])
+        if self.result == Result.Unknown:
+            self.result = Result.Equal
+            
         return self.result
 
-@function(tally)
+@function(logger=logger)
 def cmp(a: serializable.Serializable, b: serializable.Serializable):
     if a.__class__.__qualname__ < b.__class__.__qualname__: return -1
     if a.__class__.__qualname__ > b.__class__.__qualname__: return 1

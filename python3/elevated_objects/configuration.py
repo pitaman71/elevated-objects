@@ -76,29 +76,29 @@ class PropertyCollector(traversal.Visitor[ExpectedType]):
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
         self.prop_names.add(prop_name)
 
-    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         self.prop_names.add(prop_name)
         pass
 
-    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def array(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         self.prop_names.add(prop_name)
         pass
 
-    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         self.prop_names.add(prop_name)
         pass
 
 ElementType = typing.TypeVar('ElementType', bound=serializable.Serializable)
 class ScalarMutator(typing.Generic[ElementType]):
     mutator: Mutator
-    element_type: construction.Builder
+    element_type: construction.Factory
     before: ElementType | None
     after: ElementType | None
     weights: typing.Dict[ str, float ]
 
     def __init__(self, 
         mutator: Mutator,
-        element_type: construction.Builder, 
+        element_type: construction.Factory, 
         before: ElementType | None
     ):
         self.mutator = mutator
@@ -177,14 +177,14 @@ class ScalarMutator(typing.Generic[ElementType]):
 
 class ArrayMutator(typing.Generic[ElementType]):
     mutator: Mutator
-    element_type: construction.Builder
+    element_type: construction.Factory
     before: typing.List[ElementType]
     after: typing.List[ElementType] | None
     weights: typing.Dict[ str, float ]
 
     def __init__(self, 
         mutator: Mutator,
-        element_type: construction.Builder, 
+        element_type: construction.Factory, 
         before: typing.List[ElementType]
     ):
         self.mutator = mutator
@@ -397,7 +397,7 @@ class ArrayMutator(typing.Generic[ElementType]):
 
 class MapMutator(typing.Generic[ElementType]):
     mutator: Mutator
-    element_type: construction.Builder
+    element_type: construction.Factory
     before: typing.Dict[str, ElementType]
     after: typing.Dict[str, ElementType] | None
     keys: typing.Union[typing.List[str], None]
@@ -405,7 +405,7 @@ class MapMutator(typing.Generic[ElementType]):
 
     def __init__(self, 
         mutator: Mutator,
-        element_type: construction.Builder, 
+        element_type: construction.Factory, 
         before: typing.Dict[str, ElementType],
         keys: typing.List[str] = None
     ):
@@ -618,7 +618,7 @@ class PropertyMutator(traversal.Visitor):
         self.mutator.pop_strategy(location)
         return result
 
-    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         if prop_name != self.prop_name:
             return
         self.count += 1
@@ -630,7 +630,7 @@ class PropertyMutator(traversal.Visitor):
         setattr(target, prop_name, mutator())
         self.mutator.pop_strategy(location)
 
-    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def array(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         if prop_name != self.prop_name:
             return
         self.count += 1
@@ -642,7 +642,7 @@ class PropertyMutator(traversal.Visitor):
         setattr(target, prop_name, mutator())
         self.mutator.pop_strategy(location)
 
-    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         if prop_name != self.prop_name:
             return
         self.count += 1
@@ -719,14 +719,14 @@ class Ancestor:
         self.mutator.ancestors.remove(self.target)
 
 class Mutator:
-    factory: construction.Factory
+    factories: construction.Factories
     pool: multidict.MultiDict[serializable.Serializable]
     ancestors: typing.Set[serializable.Serializable]
 
     def __init__(self, 
-        factory: construction.Factory
+        factories: construction.Factories
     ):
-        self.factory = factory
+        self.factories = factories
         self.pool = multidict.MultiDict()
         self.ancestors = set()
 
@@ -751,10 +751,10 @@ class Mutator:
         return Ancestor(self, random.choice(self.get_candidates(class_spec)))
 
     def modify(self, before: serializable.Serializable) -> Ancestor:
-        builder = before.__class__.Builder()
-        after = builder.make()
-        self.pool.add(builder.get_class_spec(), after)
-        after.marshal(construction.Initializer(builder, before))
+        factory = before.__class__.Factory(self.factories)
+        after = factory.make()
+        self.pool.add(factory.get_class_spec(), after)
+        after.marshal(construction.Initializer(factory, before))
 
         # choose a property to mutate
         prop_name_collector = PropertyCollector()
@@ -764,12 +764,12 @@ class Mutator:
         save = getattr(before, chosen_prop_name)
 
         # mutate that one property
-        self.push_strategy(f"Mutating property {class_spec}.{chosen_prop_name}")
+        self.push_strategy(f"Mutating property {factory.get_class_spec()}.{chosen_prop_name}")
         prop_mutator = PropertyMutator(self, chosen_prop_name)
         after.marshal(prop_mutator)
         if prop_mutator.count == 0:
-            raise RuntimeError(f"Failed to mutate property {class_spec}.{chosen_prop_name}")
-        self.pop_strategy(f"Mutating property {class_spec}.{chosen_prop_name}")
+            raise RuntimeError(f"Failed to mutate property {factory.get_class_spec()}.{chosen_prop_name}")
+        self.pop_strategy(f"Mutating property {factory.get_class_spec()}.{chosen_prop_name}")
         print(f"DEBUG: {id(before)} property value before = {getattr(before, chosen_prop_name)}")
         print(f"DEBUG: {id(after)} property value after = {getattr(after, chosen_prop_name)}")
 

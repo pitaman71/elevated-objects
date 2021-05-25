@@ -21,7 +21,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         return(JSON.stringify(this.json).substr(0,80));
     }
 
-    begin(obj: ExpectedType, parentPropName?: string) {
+    begin(obj: ExpectedType) {
         // Must be called at the start of any marshal method. Tells this object that we are visiting the body of that object next
         if(!this.obj) {
             this.obj = obj;
@@ -49,7 +49,6 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
 
     verbatim<DataType>(
         target: any, 
-        propName: string,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void,
         getPropNames: () => Array<string>                
@@ -64,7 +63,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        if(!this.json) {
+        if(this.json === undefined) {
             throw new Error('No JSON here');
         } else if(this.json.hasOwnProperty(propName)) {
             const newValue = (typeof(this.json[propName]) === 'string')  && fromString ? fromString(this.json[propName]) : this.json[propName];
@@ -73,59 +72,72 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     }    
 
     scalar<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
-        if(!this.json) {
+        if(this.json === undefined) {
             target[propName] = undefined;
         } else if(this.json.hasOwnProperty(propName)) {            
             const item = this.json[propName];
-            const reader = new Reader<ElementType>(this.builder.getPeer(item), item, this.refs);
-            reader.read();
-            if(reader.obj) {
-                target[propName] = reader.obj;
+            if(item === null) {
+                target[propName] = null;
+            } else {
+                const reader = new Reader<ElementType>(elementBuilder, item, this.refs);
+                reader.read();
+                if(reader.obj) {
+                    target[propName] = reader.obj;
+                }
             }
         }
     }
 
     array<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        if(!this.json) {
+        if(this.json === undefined) {
             throw new Error('No JSON here');
         } else if(this.json.hasOwnProperty(propName)) {     
             const propValue = this.json[propName];            
             const newValue = propValue.map((item: any) => {
-                const reader = new Reader<ElementType>(this.builder.getPeer(item), item, this.refs);
-                reader.read();
-                return(reader.obj);
+                if(item === null) {
+                    return null;
+                } else {
+                    const reader = new Reader<ElementType>(elementBuilder, item, this.refs);
+                    reader.read();
+                    return(reader.obj);
+                }
             }).filter((item: ElementType|undefined): item is ElementType => !!item);
             target[propName] = newValue;
         }
     }
 
     map<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        if(!this.json) {
+        if(this.json === undefined) {
             throw new Error('No JSON here');
         } else if(this.json.hasOwnProperty(propName)) {     
             const propValue = this.json[propName];            
             const newValue = Object.getOwnPropertyNames(propValue).reduce((newValue: any, key: string) => {
                 const item = propValue[key];
-                const reader = new Reader<ElementType>(this.builder.getPeer(item), item, this.refs);
-                reader.read();
-                if(reader.obj !== undefined) {
+                if(item === null) {
+                    return { ... newValue, [key]: null};
+                } else {
+                    const reader = new Reader<ElementType>(elementBuilder, item, this.refs);
+                    reader.read();
                     return { ... newValue, [key]: reader.obj};
                 }
             }, {});
@@ -133,21 +145,17 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         }
     }
 
-    read(
-        classSpec_?: string
-    ): any {
+    read(): any {
         const classSpec = 
-            this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : classSpec_;
+            this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : this.builder.getClassSpec();
 
-        if(!this.json) {
+        if(this.json === undefined) {
             this.obj = undefined;
-        } else if(classSpec && this.factory.hasClass(classSpec)) {
-            const newObject = <ExpectedType>this.factory.make(classSpec);
+        } else {
+            const newObject = this.builder.make();
             newObject.marshal(this);
             this.obj = <ExpectedType>newObject;
             return newObject;
-        } else {
-            throw new Error(`Cannot construct object by reading JSON: ${this.jsonPreview()}`);
         }
     }
 }
@@ -166,29 +174,30 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         this.refs = refs ? refs : {};
     }
 
-    begin(obj: ExpectedType, parentPropName?: string) {
+    begin(obj: ExpectedType) {
         // Must be called at the start of any marshal method. Tells this object that we are visiting the body of that object next"""
         this.json = {};
         
-        const classSpec = obj.getClassSpec();
+        const classSpec = this.builder.getClassSpec();
         if(!this.refs.hasOwnProperty(classSpec)) {
             this.refs[classSpec] = [];
         }
         this.json['__class__'] = classSpec;
         if(!classSpec) {
-            throw new Error(`Cannot find class name for ${typeof obj} with builders ${Object.getOwnPropertyNames(this.factory.specToBuilder)}`);
+            throw new Error(`Cannot find class name for ${typeof obj}`);
         }
-        if(this.is_ref === undefined) {
-            const ref_index = this.refs[classSpec].indexOf(obj);
-            if(ref_index >= 0) {
-                this.is_ref = true;
-            } else {
-                this.is_ref = false;
-                this.refs[classSpec] = [ ... this.refs[classSpec], obj ];
-            }        
+        let object_id = obj.getGlobalId();
+        if(object_id !== null) {
+            this.is_ref = this.refs[classSpec].includes(object_id);
+        } else if(this.refs[classSpec].includes(obj)) {
+            this.is_ref = true;
+            object_id = this.refs[classSpec].indexOf(obj);
+        } else {
+            this.is_ref = false;
+            object_id = this.refs[classSpec].length;
+            this.refs[classSpec].push(obj);
         }
-        const ident = this.refs[classSpec].indexOf(obj).toString();
-        this.json['__id__'] = ident;
+        this.json['__id__'] = object_id;
         this.json['__is_ref__'] = this.is_ref;
     }
 
@@ -199,7 +208,6 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
 
     verbatim<DataType>(
         target: any, 
-        propName: string,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void,
         getPropNames: () => Array<string>                
@@ -214,6 +222,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     scalar<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -222,13 +231,18 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
 
         if(this.is_ref) return;
         if(target.hasOwnPropertyName(propName)) {
-            const writer = new Writer<ElementType>(target[propName], this.factory, this.refs);
-            writer.write();
-            this.json[propName] = writer.json;
+            if(target[propName] === null) {
+                this.json[propName] = null;
+            } else {
+                const writer = new Writer<ElementType>(elementBuilder, target[propName], this.refs);
+                writer.write();
+                this.json[propName] = writer.json;
+            }
         }
     }
 
     array<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -236,16 +250,22 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
         if(this.is_ref) return;
+
         if(target.hasOwnPropertyName(propName)) {
             this.json[propName] = target[propName].map((item: ElementType) => {
-                const writer = new Writer<ElementType>(item, this.factory, this.refs);
-                writer.write();
-                return writer.json;
+                if(item === null) {
+                    return null;
+                } else {
+                    const writer = new Writer<ElementType>(elementBuilder, item, this.refs);
+                    writer.write();
+                    return writer.json;
+                }
             }).filter((json:any) => !!json);
         }
     }
 
     map<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -253,11 +273,16 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
         if(this.is_ref) return;
+
         if(target.hasOwnPropertyName(propName)) {
             this.json[propName] = target[propName].reduce((newValue: any, item: ElementType) => {
-                const writer = new Writer<ElementType>(item, this.factory, this.refs);
-                writer.write();
-                return { ... newValue, [propName]: writer.json };
+                if(item === null) {
+                    return { ... newValue, [propName]: null };
+                } else {
+                    const writer = new Writer<ElementType>(elementBuilder, item, this.refs);
+                    writer.write();
+                    return { ... newValue, [propName]: writer.json };
+                }
             }, {});
         }
     }
@@ -277,7 +302,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
 export function toJSON(factory: Factory, obj: any, path?: any[]): any {
     const usePath = path || [];
     if(obj instanceof Serializable) {
-        const writer = new Writer<any>(obj, factory, {});
+        const writer = new Writer<any>(factory.getBuilderOf(obj), {});
         writer.write();
         return writer.json;
     } else if(Array.isArray(obj)) {
@@ -296,7 +321,7 @@ export function toJSON(factory: Factory, obj: any, path?: any[]): any {
 
 export function fromJSON(factory: Factory, json: any): any {
     if(json && json.hasOwnProperty('__class__') && factory.hasClass(json['__class__'])) {
-        const reader = new Reader<any>(factory.getBuilder(json), json, {}); 
+        const reader = new Reader<any>(factory.getBuilder(json['__class__']), json, {}); 
         reader.read();
         return reader.obj;
     } else if(Array.isArray(json)) {

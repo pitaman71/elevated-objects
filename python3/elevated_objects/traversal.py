@@ -38,13 +38,13 @@ class Visitor(serializable.Visitor[ExpectedType]):
         pass
 
     @abc.abstractmethod
-    def scalar(self, builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
     @abc.abstractmethod
-    def array(self, builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def array(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
     @abc.abstractmethod
-    def map(self, key_type: typing.Type, builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         pass

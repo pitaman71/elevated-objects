@@ -10,30 +10,31 @@ from . import traversal
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
 PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
-class Factory:
-    spec_to_builder: typing.Dict[ str, Builder ]
+class Factories:
+    spec_to_builder: typing.Dict[ str, Factory ]
 
     def __init__(self):
         self.spec_to_builder = {}
 
-    def add_builders(self, builders: typing.List[ Builder ]):
-        for builder in builders:
-            class_spec = builder.get_class_spec()
-            if(class_spec in self.spec_to_builder):
-                raise RuntimeError(f"Duplicate definition of class_spec {class_spec}")
-            self.spec_to_builder[class_spec] = builder
+    def register(self, class_spec: str, factory_maker: typing.Callable[ [], Factory ]):
+        if(class_spec not in self.spec_to_builder):
+            self.spec_to_builder[class_spec] = factory_maker()
+        return self.spec_to_builder[class_spec]
 
     def has_class(self, class_spec: typing.Union[str, None]) -> bool:
         return class_spec is not None and class_spec in self.spec_to_builder
 
-    def get_builder(self, class_spec: str):
+    def get_builder(self, class_spec: str) -> Factory:
         return self.spec_to_builder[class_spec]
+
+    def get_builder_of(self, obj: serializable.Serializable) -> Factory:
+        return obj.__class.__.Factory(self)
 
     def make(self, class_spec:str) -> serializable.Serializable:
         return self.spec_to_builder[class_spec].make()
 
 class Initializer(traversal.Visitor[ExpectedType]):
-    builder: Builder[ExpectedType]
+    factory: Factory[ExpectedType]
     initializers: typing.List[typing.Any]
     obj: ExpectedType
 
@@ -46,8 +47,8 @@ class Initializer(traversal.Visitor[ExpectedType]):
     def owner(self, target: ExpectedType, ownerPropName: str):
         pass
 
-    def __init__(self, builder: Builder[ExpectedType], *initializers):
-        self.builder = builder
+    def __init__(self, factory: Factory[ExpectedType], *initializers):
+        self.factory = factory
         self.initializers = list(initializers)
 
     def clone(self, *initializers: object) -> serializable.Serializable:
@@ -82,16 +83,16 @@ class Initializer(traversal.Visitor[ExpectedType]):
                 typed_value = new_value
             setattr(target, prop_name, typed_value)
 
-    def scalar(self, element_builder: Builder, target, prop_name: str):
+    def scalar(self, element_builder: Factory, target, prop_name: str):
         new_values = [
             getattr(initializer, prop_name) for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
         if len(new_values) == 1:
             return setattr(target, prop_name, new_values[0])
         elif len(new_values) > 1:
-            return setattr(target, prop_name, self.clone(*new_values))
+            return setattr(target, prop_name, element_builder.clone(*new_values))
 
-    def array(self, element_builder: Builder, target, prop_name: str):
+    def array(self, element_builder: Factory, target, prop_name: str):
         has_property = [
             initializer for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
@@ -109,11 +110,11 @@ class Initializer(traversal.Visitor[ExpectedType]):
                 elif len(element_values) == 1:
                     new_element_value = element_values[0]
                 else:
-                    new_element_value = self.clone(*element_values)
+                    new_element_value = element_builder.clone(*element_values)
                 new_array_value.append(new_element_value)
             setattr(target, prop_name, new_array_value)
 
-    def map(self, key_type: typing.Type, element_builder: Builder, target, prop_name: str):
+    def map(self, key_type: typing.Type, element_builder: Factory, target, prop_name: str):
         has_property = [
             initializer for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
@@ -129,37 +130,72 @@ class Initializer(traversal.Visitor[ExpectedType]):
             elif len(element_values) == 1:
                 new_element_value = element_values[0]
             else:
-                new_element_value = self.clone(*element_values)
+                new_element_value = element_builder.clone(*element_values)
             new_value[key] = new_element_value
         setattr(target, prop_name, new_value)
 
     def init(self, target: serializable.Serializable):
         target.marshal(self)
 
-class Builder(typing.Generic[ExpectedType]):
-    factory: Factory
-    class_spec: any
-    allocator: typing.Callable[ [], ExpectedType ]
-    when_done: typing.Callable = lambda x: x
-    built: ExpectedType = None
+class Factory(typing.Generic[ExpectedType]):
+    allocators: typing.Dict[ str, typing.Callable[ [], ExpectedType ] ]
 
-    def __init__(self, factory: Factory, class_spec: any, allocator: typing.Callable[ [], ExpectedType ], when_done: typing.Callable = lambda x: x, built: ExpectedType = None):
-        self.factory = factory
+    @classmethod
+    def abstract(cls, class_spec: str):
+        result = Factory(class_spec)
+        return result
+
+    @classmethod
+    def concrete(cls, class_spec: str, allocator: typing.Callable[ [], ExpectedType ]):
+        result = Factory(class_spec)
+        result.allocators = { class_spec: allocator }
+        return result
+
+    @classmethod
+    def derived(cls, class_spec: str, 
+        allocator: typing.Callable[ [], ExpectedType ],
+        parent_factories: typing.List[ Factory ]
+    ):
+        result = Factory(class_spec)
+        result.allocators = { class_spec: allocator }
+        for parent_factory in parent_factories:
+            parent_factory.allocators.update(result.allocators)
+        return result
+
+    def __init__(self, class_spec: str):
+        self.allocators = {}
         self.class_spec = class_spec
-        self.allocator = allocator
-        self.when_done = when_done
-        self.built = built or allocator()
 
     def get_class_spec(self):
         return self.class_spec
+        
+    def make(self, class_spec: str):
+        if class_spec is None:
+            if len(self.allocators.keys()) != 1:
+                raise RuntimeError('JSON object type is ambiguous')
+            result = self.allocators.values()[0]()
+        elif class_spec in self.allocators:
+            result = self.allocators[class_spec]()
+        else:
+            raise RuntimeError(f"Object of type {class_spec} is not compatible with {self.allocators.keys()}")
+        result.__class_spec__ = class_spec
+        return result
 
-    def get_peer(self, class_spec: str):
-        return self.factory.get_builder(class_spec)
+class Builder(typing.Generic[ExpectedType]):
+    factory: Factory[ExpectedType]
+    class_spec: any
+    when_done: typing.Callable = lambda x: x
+    built: ExpectedType = None
 
-    def make(self):
-        self.built = self.allocator()
-        return self.built
+    def __init__(self, factory: Factory[ExpectedType], class_spec: any, when_done: typing.Callable = lambda x: x, built: ExpectedType = None):
+        self.factory = factory
+        self.class_spec = class_spec
+        self.when_done = when_done
+        self.built = built or factory.make()
 
+    def get_class_spec(self):
+        return self.class_spec
+        
     def done(self, finisher: typing.Callable [ [ ExpectedType ], serializable.Serializable] = lambda x:x) -> serializable.Serializable:
         result = self.built
         self.built = None

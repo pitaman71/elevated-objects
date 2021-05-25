@@ -8,7 +8,6 @@ export abstract class Visitor<ExpectedType extends Serializable> {
     abstract owner(target: ExpectedType, ownerPropName: string): void;
     abstract verbatim<DataType>(
         target: any, 
-        propName: string,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void,
         getPropNames: () => Array<string>        
@@ -18,14 +17,17 @@ export abstract class Visitor<ExpectedType extends Serializable> {
         propName: string, 
         fromString?: (initializer:string) => PropType): void;
     abstract scalar<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string
     ): void;
     abstract array<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string
     ): void;
     abstract map<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string
     ): void;

@@ -34,7 +34,6 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
 
     verbatim<DataType>(
         target: any, 
-        propName: string,
         getValue: (target: ExpectedType) => any,
         setValue: (target: ExpectedType, value: any) => void,
         getPropNames: () => Array<string>        
@@ -90,7 +89,29 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
         return this.result;
     }
 
+    compare_elements<ElementType extends serialization.Serializable>(
+        a_prop: serialization.Serializable,
+        b_prop: serialization.Serializable
+    ) {
+        if(a_prop.getGlobalId() === null && b_prop.getGlobalId() === null) {
+            const sub = new Comparator(a_prop, b_prop);
+            a_prop.marshal(sub);
+            if(sub.result !== Result.Equal) {
+                this.result = sub.result;
+            }
+        } else if(a_prop.getGlobalId() === null && b_prop.getGlobalId() !== null) {
+            this.result = Result.Less;
+        } else if(a_prop.getGlobalId() !== null && b_prop.getGlobalId() === null) {
+            this.result = Result.Greater;
+        } else if((a_prop.getGlobalId() || 0) < (b_prop.getGlobalId() || 0)) {
+            this.result = Result.Less;
+        } else if((a_prop.getGlobalId() || 0) >(b_prop.getGlobalId() || 0)) {
+            this.result = Result.Less;
+        }
+    }
+
     scalar<ElementType extends serialization.Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string
     ): Result {
@@ -116,12 +137,17 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
             this.result = Result.Less;
         } else if(aProp !== undefined && bProp === undefined) {
             this.result = Result.Greater;
-        } 
-        this.result = cmp(aProp.id(), bProp.id());
+        } else {
+            this.compare_elements(aProp, bProp);
+        }
+        if(this.result === Result.Unknown) {
+            this.result = Result.Equal;
+        }
         return this.result;
     }
 
     array<ElementType extends serialization.Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string
     ): Result {
@@ -134,14 +160,26 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
         } else if(aHasProp && !bHasProp) {
             this.result = Result.Greater;
         }
+        if(this.a.length < this.b.length) {
+            this.result = Result.Less;
+        } else if(this.a.length > this.b.length) {
+            this.result = Result.Greater;
+        }
 
-        const aProp = this.a[propName].map((propValue: ElementType) => propValue.id());
-        const bProp = this.b[propName].map((propValue: ElementType) => propValue.id());
-        this.result = cmp(aProp, bProp);
+        this.a[propName].forEach((aProp: serialization.Serializable, index: number) => {
+            const bProp = this.b[propName][index];
+            if(this.result === Result.Unknown) {
+                this.compare_elements(aProp, bProp);
+            }
+        });
+        if(this.result === Result.Unknown) {
+            this.result = Result.Equal;
+        }
         return this.result;
     }
 
     map<ElementType extends serialization.Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string
     ): Result {
@@ -154,10 +192,21 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
         } else if(aHasProp && !bHasProp) {
             this.result = Result.Greater;
         }
-
-        const aProp = Object.getOwnPropertyNames(this.a[propName]).reduce((ids: any, key: string) => this.a[propName][key].id());
-        const bProp = Object.getOwnPropertyNames(this.b[propName]).reduce((ids: any, key: string) => this.b[propName][key].id());
-        this.result = cmp(aProp, bProp);
+        const aKeys = Object.getOwnPropertyNames(this.a[propName]);
+        const bKeys = Object.getOwnPropertyNames(this.b[propName]);
+        if(aKeys < bKeys) {
+            this.result = Result.Less;
+        } else if(aKeys > bKeys) {
+            this.result = Result.Greater;
+        }
+        aKeys.forEach((key: string) => {
+            if(this.result === Result.Unknown) {
+                this.compare_elements(this.a[propName][key], this.b[propName][key]);
+            }
+        });
+        if(this.result === Result.Unknown) {
+            this.result = Result.Equal;
+        }
         return this.result;
     }
 }

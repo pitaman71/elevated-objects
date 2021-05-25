@@ -1,8 +1,6 @@
 import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
-import * as JSONMarshal from './JSONMarshal';
-
 export class Factory {
     specToBuilder: { [key: string]: Builder<Serializable> };
 
@@ -10,29 +8,30 @@ export class Factory {
         this.specToBuilder = {};
     }
     
-    addValueMakers(prefix: Array<string>, valueMakers: { [key: string]: () => Serializable }) {
-        Object.getOwnPropertyNames(valueMakers).forEach((suffix: string) => {
-            const classSpec = [ ... prefix, ... suffix.split('.') ].join('.');
-            if(this.specToBuilder.hasOwnProperty(classSpec)) {
-                throw new Error(`Duplicate definition of class_spec ${classSpec}`);                
+    addBuilders(builders: Builder<any>[]) {
+        builders.forEach((builder: Builder<any>) => {
+            const classSpec = builder.getClassSpec();
+            if(Object.getOwnPropertyNames(this.specToBuilder).includes(classSpec)) {
+                throw new Error(`Duplicate definition of class_spec ${classSpec}`);
             }
-            const ctor = valueMakers[suffix];
-            const tmp = ctor();
-            this.specToBuilder[classSpec] = new Builder(this, classSpec, ctor);
-        })
+            this.specToBuilder[classSpec] = builder;
+        });
     }
 
-    getClassSpec(obj: any): string {
-        return obj.getClassSpec();
+    hasClass(classSpec?: string): boolean {
+        return !!classSpec && this.specToBuilder.hasOwnProperty(classSpec);
     }
 
-    hasClass(classSpec: any): boolean {
-        return classSpec && this.specToBuilder.hasOwnProperty(classSpec.toString());
+    getBuilder(classSpec: string): Builder<any> {
+        return this.specToBuilder[classSpec];
     }
 
-    make(classSpec: any): Serializable {
-        const builder = this.specToBuilder[classSpec.toString()];
-        return builder.make();
+    getBuilderOf(obj: Serializable): Builder<any> {
+        return obj.__builder__;
+    }
+
+    make(classSpec: string): Serializable {
+        return this.specToBuilder[classSpec.toString()].make();
     }
 }
 
@@ -50,9 +49,15 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
         this.initializers = initializers;
     }
 
+    clone(... initializers: any[]): Serializable {
+        const result = this.builder.make();
+        const initializer = new Initializer(this.builder, ... initializers);
+        result.marshal(initializer);
+        return result;
+    }
+
     verbatim<DataType>(
         target: any, 
-        propName: string,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void,
         getPropNames: () => Array<string>
@@ -75,6 +80,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     scalar<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -84,11 +90,12 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
         if(newValues.length == 1) {
             target[propName] = newValues[0];
         } else if(newValues.length > 1) {
-            target[propName] = this.builder.clone(... newValues);
+            target[propName] = elementBuilder.clone(... newValues);
         }
     }
 
     array<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -109,9 +116,9 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
                         (collected: ElementType[], initializer: any) => 
                         [ ... collected, initializer[propName][index]]
                     , []);
-                    const elementValue: ElementType = elementValues.length > 0 && 
-                        elementValues[0].clone(... elementValues);
-                    return [ ... arrayValue, elementValue ];
+                    return elementValues.length 
+                        ? arrayValue 
+                        : [ ... arrayValue, elementBuilder.clone(... elementValues) ];
                 }
             , []);
             target[propName] = newArrayValue;
@@ -119,6 +126,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     map<ElementType extends Serializable>(
+        elementBuilder: Builder<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -143,7 +151,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
             const elementValue: ElementType = 
                 elementValues.length == 0 ? undefined :
                 elementValues.length == 1 ? elementValues[1] :
-                this.builder.clone(... elementValues);
+                elementBuilder.clone(... elementValues);
             return { ... newValue, [propName]: elementValue };
         }, {});
     }
@@ -172,15 +180,18 @@ export class Builder<ExpectedType extends Serializable> {
         this.allocator = allocator;
         this.whenDone = whenDone;
         this.built = built || allocator();
+        this.built.__builder__ = this;
     }
 
     getClassSpec() { return this.classSpec; }
 
     make(initializer?: any): ExpectedType {
-        return this.allocator(initializer);
+        const result = this.allocator(initializer);
+        result.__builder__ = this;
+        return result;
     }
 
-    clone(...initializers: Array<Serializable>): Serializable {
+    clone(...initializers: Array<Serializable>): ExpectedType {
         const result = this.allocator();
         const initializer = new Initializer(this, ...initializers);
         result.marshal(initializer);
