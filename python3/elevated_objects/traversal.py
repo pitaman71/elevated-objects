@@ -12,11 +12,15 @@ PropType = typing.TypeVar('PropType')
 
 class Visitor(serializable.Visitor[ExpectedType]): 
     @abc.abstractmethod
-    def begin(self, obj: serializable.ExpectedType, parent_prop_name: str = None) -> None:
+    def begin(self, obj: ExpectedType) -> None:
         pass
 
     @abc.abstractmethod
-    def end(self, obj: serializable.ExpectedType) -> None:
+    def end(self, obj: ExpectedType) -> None:
+        pass
+
+    @abc.abstractmethod
+    def owner(self, target: ExpectedType, owner_prop_name: str):
         pass
 
     @abc.abstractmethod
@@ -34,13 +38,13 @@ class Visitor(serializable.Visitor[ExpectedType]):
         pass
 
     @abc.abstractmethod
-    def scalar(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
     @abc.abstractmethod
-    def array(self, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def array(self, builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
     @abc.abstractmethod
-    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         pass

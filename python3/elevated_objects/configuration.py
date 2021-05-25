@@ -59,6 +59,9 @@ class PropertyCollector(traversal.Visitor[ExpectedType]):
     def end(self, obj: ExpectedType) -> None:
         pass
 
+    def owner(self, target: ExpectedType, owner_prop_name: str):
+        pass
+
     def verbatim(self, 
         data_type: typing.Type, 
         target: serializable.Serializable, 
@@ -116,7 +119,7 @@ class ScalarMutator(typing.Generic[ElementType]):
             return self.go()
 
     def go(self) -> ElementType | None:
-        class_spec = self.mutator.factory.get_class_spec(self.element_type.make())
+        class_spec = self.element_type.get_class_spec()
         if self.before is None:
             self.weights['clear'] = 0.0
             self.weights['modify'] = 0.0
@@ -620,7 +623,6 @@ class PropertyMutator(traversal.Visitor):
         location = source_code.Line()
         self.mutator.push_strategy(location)
         mutator = ScalarMutator(self.mutator,
-            element_builder,
             getattr(target, prop_name)
         )
         setattr(target, prop_name, mutator())
@@ -633,7 +635,6 @@ class PropertyMutator(traversal.Visitor):
         location = source_code.Line()
         self.mutator.push_strategy(location)
         mutator = ArrayMutator(self.mutator,
-            element_builder,
             getattr(target, prop_name)
         )
         setattr(target, prop_name, mutator())
@@ -646,7 +647,6 @@ class PropertyMutator(traversal.Visitor):
         location = source_code.Line()
         self.mutator.push_strategy(location)
         mutator = MapMutator(self.mutator,
-            element_builder,
             getattr(target, prop_name)
         )
         setattr(target, prop_name, mutator())
@@ -749,10 +749,10 @@ class Mutator:
         return Ancestor(self, random.choice(self.get_candidates(class_spec)))
 
     def modify(self, before: serializable.Serializable) -> Ancestor:
-        class_spec = self.factory.get_class_spec(before)
-        after = self.factory.make(class_spec)
-        self.pool.add(class_spec, after)
-        after.marshal(construction.Initializer(before))
+        builder = before.__class__.Builder()
+        after = builder.make()
+        self.pool.add(builder.get_class_spec(), after)
+        after.marshal(construction.Initializer(builder, before))
 
         # choose a property to mutate
         prop_name_collector = PropertyCollector()

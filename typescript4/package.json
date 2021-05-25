@@ -1,5 +1,5 @@
 {
-  "name": "typescript-elevated-objects",
+  "name": "elevated-objects",
   "version": "1.0.0",
   "description": "Framework for specifying introspect-able object types that can accurately initialize themselves, marshal themselves to/from JSON and other formats with little to no additional code.",
   "main": "lib/index.js",

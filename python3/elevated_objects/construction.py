@@ -12,34 +12,28 @@ PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
 class Factory:
     spec_to_builder: typing.Dict[ str, Builder ]
-    class_id_to_spec: typing.Dict[ int, str ]
 
     def __init__(self):
         self.spec_to_builder = {}
-        self.class_id_to_spec = {}
 
-    def add_value_makers(self, prefix: typing.List[str], value_makers: typing.Dict[str, typing.Callable[ [], serializable.Serializable ]]):
-        for suffix, value_maker in value_makers.items():
-            class_spec = '.'.join(prefix + suffix.split('.'))
+    def add_builders(self, builders: typing.List[ Builder ]):
+        for builder in builders:
+            class_spec = builder.get_class_spec()
             if(class_spec in self.spec_to_builder):
                 raise RuntimeError(f"Duplicate definition of class_spec {class_spec}")
-            tmp = value_maker()
-            self.spec_to_builder[class_spec] = Builder(value_maker)
-            self.class_id_to_spec[id(tmp.__class__)] = class_spec
-
-    def get_class_spec(self, obj: serializable.Serializable) -> str:
-        class_spec = self.class_id_to_spec.get(id(obj.__class__))
-        if class_spec is None:
-            raise RuntimeError(f'No class_spec for {obj.__class__.__qualname__}')
-        return class_spec
+            self.spec_to_builder[class_spec] = builder
 
     def has_class(self, class_spec: typing.Union[str, None]) -> bool:
         return class_spec is not None and class_spec in self.spec_to_builder
+
+    def get_builder(self, class_spec: str):
+        return self.spec_to_builder[class_spec]
 
     def make(self, class_spec:str) -> serializable.Serializable:
         return self.spec_to_builder[class_spec].make()
 
 class Initializer(traversal.Visitor[ExpectedType]):
+    builder: Builder[ExpectedType]
     initializers: typing.List[typing.Any]
     obj: ExpectedType
 
@@ -49,8 +43,18 @@ class Initializer(traversal.Visitor[ExpectedType]):
     def end(self, obj: ExpectedType):
         pass
 
-    def __init__(self, *initializers):
+    def owner(self, target: ExpectedType, ownerPropName: str):
+        pass
+
+    def __init__(self, builder: Builder[ExpectedType], *initializers):
+        self.builder = builder
         self.initializers = list(initializers)
+
+    def clone(self, *initializers: object) -> serializable.Serializable:
+        result = self.builder.make()
+        initializer = Initializer(self.builder, *initializers)
+        result.marshal(initializer)
+        return result
 
     def verbatim(self,
         data_type: typing.Type, 
@@ -85,7 +89,7 @@ class Initializer(traversal.Visitor[ExpectedType]):
         if len(new_values) == 1:
             return setattr(target, prop_name, new_values[0])
         elif len(new_values) > 1:
-            return setattr(target, prop_name, element_builder.clone(*new_values))
+            return setattr(target, prop_name, self.clone(*new_values))
 
     def array(self, element_builder: Builder, target, prop_name: str):
         has_property = [
@@ -105,11 +109,11 @@ class Initializer(traversal.Visitor[ExpectedType]):
                 elif len(element_values) == 1:
                     new_element_value = element_values[0]
                 else:
-                    new_element_value = element_builder.clone(*element_values)
+                    new_element_value = self.clone(*element_values)
                 new_array_value.append(new_element_value)
             setattr(target, prop_name, new_array_value)
 
-    def map(self, element_builder: Builder, target, prop_name: str):
+    def map(self, key_type: typing.Type, element_builder: Builder, target, prop_name: str):
         has_property = [
             initializer for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
@@ -125,7 +129,7 @@ class Initializer(traversal.Visitor[ExpectedType]):
             elif len(element_values) == 1:
                 new_element_value = element_values[0]
             else:
-                new_element_value = element_builder.clone(*element_values)
+                new_element_value = self.clone(*element_values)
             new_value[key] = new_element_value
         setattr(target, prop_name, new_value)
 
@@ -133,17 +137,30 @@ class Initializer(traversal.Visitor[ExpectedType]):
         target.marshal(self)
 
 class Builder(typing.Generic[ExpectedType]):
+    factory: Factory
+    class_spec: any
     allocator: typing.Callable[ [], ExpectedType ]
+    when_done: typing.Callable = lambda x: x
+    built: ExpectedType = None
 
-    def __init__(self, allocator: typing.Callable[ [], ExpectedType ]):
+    def __init__(self, factory: Factory, class_spec: any, allocator: typing.Callable[ [], ExpectedType ], when_done: typing.Callable = lambda x: x, built: ExpectedType = None):
+        self.factory = factory
+        self.class_spec = class_spec
         self.allocator = allocator
+        self.when_done = when_done
+        self.built = built or allocator()
+
+    def get_class_spec(self):
+        return self.class_spec
+
+    def get_peer(self, class_spec: str):
+        return self.factory.get_builder(class_spec)
 
     def make(self):
-        result = self.allocator()
-        return result
+        self.built = self.allocator()
+        return self.built
 
-    def clone(self, *initializers: object) -> serializable.Serializable:
-        result = self.allocator()
-        initializer = Initializer(*initializers)
-        result.marshal(initializer)
-        return result
+    def done(self, finisher: typing.Callable [ [ ExpectedType ], serializable.Serializable] = lambda x:x) -> serializable.Serializable:
+        result = self.built
+        self.built = None
+        return finisher(self.when_done(result))

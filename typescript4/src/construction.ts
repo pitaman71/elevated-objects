@@ -1,4 +1,4 @@
-import { Serializable } from './Serializable';
+import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
 import * as JSONMarshal from './JSONMarshal';
@@ -18,7 +18,7 @@ export class Factory {
             }
             const ctor = valueMakers[suffix];
             const tmp = ctor();
-            this.specToBuilder[classSpec] = new Builder(ctor);
+            this.specToBuilder[classSpec] = new Builder(this, classSpec, ctor);
         })
     }
 
@@ -37,13 +37,16 @@ export class Factory {
 }
 
 export class Initializer<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
+    builder: Builder<ExpectedType>;
     initializers: any[];
     obj?: ExpectedType;
 
     begin(obj: ExpectedType, parentPropName?: string): void { this.obj = obj; }
     end(obj: ExpectedType): void {}
+    owner(target: ExpectedType, ownerPropName: string): void {}
 
-    constructor(...initializers: any[]) {
+    constructor(builder: Builder<ExpectedType>, ...initializers: any[]) {
+        this.builder = builder;
         this.initializers = initializers;
     }
 
@@ -72,7 +75,6 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     scalar<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -82,12 +84,11 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
         if(newValues.length == 1) {
             target[propName] = newValues[0];
         } else if(newValues.length > 1) {
-            target[propName] = elementBuilder.clone(... newValues);
+            target[propName] = this.builder.clone(... newValues);
         }
     }
 
     array<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -118,7 +119,6 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     map<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -143,7 +143,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
             const elementValue: ElementType = 
                 elementValues.length == 0 ? undefined :
                 elementValues.length == 1 ? elementValues[1] :
-                elementBuilder.clone(... elementValues);
+                this.builder.clone(... elementValues);
             return { ... newValue, [propName]: elementValue };
         }, {});
     }
@@ -154,11 +154,27 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
 }
 
 export class Builder<ExpectedType extends Serializable> {
+    factory: Factory;
+    classSpec: string
     allocator: (initializer?: any) => ExpectedType;
+    whenDone: (initializer?: any) => ExpectedType;
+    built: ExpectedType;
 
-    constructor(allocator: (initializer?: any) => ExpectedType) {
+    constructor(
+        factory: Factory,
+        classSpec: string,
+        allocator: (initializer?: any) => ExpectedType,
+        whenDone: (initializer?: any) => ExpectedType = (x) => x,
+        built?: ExpectedType
+    ) {
+        this.factory = factory;
+        this.classSpec = classSpec
         this.allocator = allocator;
+        this.whenDone = whenDone;
+        this.built = built || allocator();
     }
+
+    getClassSpec() { return this.classSpec; }
 
     make(initializer?: any): ExpectedType {
         return this.allocator(initializer);
@@ -166,8 +182,12 @@ export class Builder<ExpectedType extends Serializable> {
 
     clone(...initializers: Array<Serializable>): Serializable {
         const result = this.allocator();
-        const initializer = new Initializer(...initializers);
+        const initializer = new Initializer(this, ...initializers);
         result.marshal(initializer);
         return result;
+    }
+
+    done(finisher: (built: ExpectedType) => Serializable = (x) => x): Serializable {
+        return finisher(this.whenDone(this.built));
     }
 }

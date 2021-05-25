@@ -1,18 +1,18 @@
-import { Serializable } from './Serializable';
+import { Serializable } from './serialization';
 import { Builder, Factory } from './construction';
 import { Visitor } from './traversal';
 
 export class Reader<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
+    builder: Builder<ExpectedType>;
     json: any;
     obj: ExpectedType|undefined;
-    factory: Factory;
     refs: { [key:string]: { [key:string]: any } };
     is_ref: boolean;
 
     // Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
-    constructor(json: any, factory: Factory, refs?: { [key:string]: { [key:string]: any } }) {
+    constructor(builder: Builder<ExpectedType>, json: any, refs?: { [key:string]: { [key:string]: any } }) {
+        this.builder = builder
         this.json = json;
-        this.factory = factory;
         this.refs = refs ? refs : {};
         this.is_ref = false;
     }
@@ -26,7 +26,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         if(!this.obj) {
             this.obj = obj;
         }
-        const className = this.factory.getClassSpec(this.json);
+        const className = this.builder.getClassSpec();
         if(!this.refs.hasOwnProperty(className)) {
             this.refs[className] = {};
         }
@@ -44,6 +44,8 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     end(obj:ExpectedType) {
         //Must be called at the end of any marshal method. Tells this object that we are done visiting the body of that object
     }
+
+    owner(target: ExpectedType, ownerPropName: string): void {}
 
     verbatim<DataType>(
         target: any, 
@@ -71,7 +73,6 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     }    
 
     scalar<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -80,7 +81,8 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         if(!this.json) {
             target[propName] = undefined;
         } else if(this.json.hasOwnProperty(propName)) {            
-            const reader = new Reader<ElementType>(this.json[propName], this.factory, this.refs);
+            const item = this.json[propName];
+            const reader = new Reader<ElementType>(this.builder.getPeer(item), item, this.refs);
             reader.read();
             if(reader.obj) {
                 target[propName] = reader.obj;
@@ -89,7 +91,6 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     array<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -101,7 +102,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         } else if(this.json.hasOwnProperty(propName)) {     
             const propValue = this.json[propName];            
             const newValue = propValue.map((item: any) => {
-                const reader = new Reader<ElementType>(item, this.factory, this.refs);
+                const reader = new Reader<ElementType>(this.builder.getPeer(item), item, this.refs);
                 reader.read();
                 return(reader.obj);
             }).filter((item: ElementType|undefined): item is ElementType => !!item);
@@ -110,7 +111,6 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     map<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -122,7 +122,8 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         } else if(this.json.hasOwnProperty(propName)) {     
             const propValue = this.json[propName];            
             const newValue = Object.getOwnPropertyNames(propValue).reduce((newValue: any, key: string) => {
-                const reader = new Reader<ElementType>(propValue[key], this.factory, this.refs);
+                const item = propValue[key];
+                const reader = new Reader<ElementType>(this.builder.getPeer(item), item, this.refs);
                 reader.read();
                 if(reader.obj !== undefined) {
                     return { ... newValue, [key]: reader.obj};
@@ -133,12 +134,10 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     read(
-        elementBuilder?: Builder<ExpectedType>
+        classSpec_?: string
     ): any {
         const classSpec = 
-            this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] :
-            elementBuilder ? this.factory.getClassSpec(elementBuilder.make()) :
-            undefined;
+            this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : classSpec_;
 
         if(!this.json) {
             this.obj = undefined;
@@ -154,16 +153,16 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
 }
 
 export class Writer<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
+    builder: Builder<ExpectedType>;
     obj:ExpectedType;
     json: any;
-    factory: Factory;
     refs: { [key:string]: any[] };
     is_ref?: boolean;
 
     // Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
-    constructor(obj: ExpectedType, factory: Factory, refs?: { [key:string]: object[] }) {
+    constructor(builder: Builder<ExpectedType>, obj: ExpectedType, refs?: { [key:string]: object[] }) {
+        this.builder = builder;
         this.obj = obj;
-        this.factory = factory;
         this.refs = refs ? refs : {};
     }
 
@@ -196,6 +195,8 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     end(obj: ExpectedType) {
     }
 
+    owner(target: ExpectedType, ownerPropName: string): void {}
+
     verbatim<DataType>(
         target: any, 
         propName: string,
@@ -213,7 +214,6 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     scalar<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -229,7 +229,6 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     array<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -247,7 +246,6 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     map<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
         target: any, 
         propName: string        
     ): void {
@@ -298,7 +296,7 @@ export function toJSON(factory: Factory, obj: any, path?: any[]): any {
 
 export function fromJSON(factory: Factory, json: any): any {
     if(json && json.hasOwnProperty('__class__') && factory.hasClass(json['__class__'])) {
-        const reader = new Reader<any>(json, factory, {}); 
+        const reader = new Reader<any>(factory.getBuilder(json), json, {}); 
         reader.read();
         return reader.obj;
     } else if(Array.isArray(json)) {

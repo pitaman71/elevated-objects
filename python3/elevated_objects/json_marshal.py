@@ -15,15 +15,16 @@ RefTable = typing.Dict[ str, typing.Dict[ int, serializable.Serializable ] ]
 class Reader(traversal.Visitor[ExpectedType]):
     json: typing.Any
     obj: typing.Union[ExpectedType, None]
+    builder: construction.Builder[ExpectedType]
     factory: construction.Factory
     refs: RefTable
     is_ref: bool
 
     # Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
-    def __init__(self, json: typing.Any, factory: construction.Factory, refs: RefTable):
+    def __init__(self, builder: construction.Builder[ExpectedType], json: typing.Any, refs: RefTable):
         self.json = json
         self.obj = None
-        self.factory = factory
+        self.builder = builder
         self.refs = refs if refs else dict()
         self.is_ref = False
 
@@ -35,7 +36,7 @@ class Reader(traversal.Visitor[ExpectedType]):
         if self.obj is None:
             self.obj = obj
 
-        class_name = self.factory.get_class_spec(self.obj)
+        class_name = self.builder.get_class_spec()
         if class_name not in self.refs:
             self.refs[class_name] = dict()
 
@@ -49,6 +50,9 @@ class Reader(traversal.Visitor[ExpectedType]):
 
     def end(self, obj:ExpectedType):
         # Must be called at the end of any marshal method. Tells this object that we are done visiting the body of that object
+        pass
+
+    def owner(self, target: ExpectedType, owner_prop_name: str):
         pass
 
     def verbatim(self,
@@ -79,12 +83,16 @@ class Reader(traversal.Visitor[ExpectedType]):
         if self.json is None:
             setattr(target, prop_name, None)
         elif prop_name in self.json:
-            reader = Reader(self.json[prop_name], self.factory, self.refs)
-            reader.read(element_builder)
-            if reader.obj is not None:
-                setattr(target, prop_name, reader.obj)
+            item = self.json[prop_name]
+            if item is None:
+                setattr(target, prop_name, None)
+            else:
+                reader = Reader(element_builder, self.json[prop_name], self.refs)
+                reader.read()
+                if reader.obj is not None:
+                    setattr(target, prop_name, reader.obj)
 
-    def array(self, element_type: typing.Type, target: typing.Any, prop_name: str):
+    def array(self, element_builder: construction.Builder, target: typing.Any, prop_name: str):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         # Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
@@ -94,39 +102,41 @@ class Reader(traversal.Visitor[ExpectedType]):
             prop_value = self.json[prop_name]
             new_value = []
             for item in prop_value:
-                reader = Reader(item, self.factory, self.refs)
-                reader.read(element_type)
-                new_value.append(reader.obj)
+                if item is None:
+                    new_value.append(None)
+                else:
+                    reader = Reader(element_builder, item, self.refs)
+                    reader.read()
+                    new_value.append(reader.obj)
             setattr(target, prop_name, new_value)
 
-    def map(self, key_type: typing.Type, element_type: typing.Type, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: serializable.Serializable, prop_name: str) -> None:
         if self.json is None:
             raise RuntimeError('No JSON here')
         elif prop_name in self.json:
             prop_value = self.json[prop_name]
             new_value = {}
             for key, value in self.json[prop_name].items():
-                reader = Reader(value, self.factory, self.refs)
-                reader.read(element_type)
-                new_value[key] = reader.obj
+                if value is None:
+                    new_value[key] = None
+                else:
+                    reader = Reader(element_builder, value, self.refs)
+                    reader.read()
+                    new_value[key] = reader.obj
             setattr(target, prop_name, new_value)
 
-    def read(self, element_builder: typing.Union[construction.Builder, None] = None):
+    def read(self):
         if type(self.json) == dict and '__class__' in self.json:
             class_spec = self.json['__class__'] 
-        elif element_builder is not None:
-            class_spec = self.factory.get_class_spec(element_builder.make())
         else:
-            class_spec = None
+            class_spec = self.builder.get_class_spec()
         if self.json is None:
             self.obj = None
-        elif class_spec is not None and self.factory.has_class(class_spec):
-            new_object = self.factory.make(class_spec)
+        else:
+            new_object = self.builder.make()
             new_object.marshal(self)
             self.obj = typing.cast(ExpectedType, new_object)
             return new_object
-        else:
-            raise RuntimeError(f"Cannot construct object by reading JSON: {self.jsonPreview()}")
 
 class Writer(traversal.Visitor[ExpectedType]):
     obj:ExpectedType
@@ -136,10 +146,10 @@ class Writer(traversal.Visitor[ExpectedType]):
     is_ref: typing.Union[bool, None]
 
     # Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
-    def __init__(self, obj: ExpectedType, factory: construction.Factory, refs: RefTable):
+    def __init__(self, builder: construction.Builder[ExpectedType], obj: ExpectedType, refs: RefTable):
         self.obj = obj
         self.json = None
-        self.factory = factory
+        self.builder = builder
         self.refs = refs if refs is not None else dict()
         self.is_ref = None
 
@@ -147,13 +157,13 @@ class Writer(traversal.Visitor[ExpectedType]):
         # Must be called at the start of any marshal method. Tells this object that we are visiting the body of that object next"""
         self.json = {}
         
-        class_name = self.factory.get_class_spec(obj)
+        class_name = self.builder.get_class_spec()
         if class_name not in self.refs:
             self.refs[class_name] = {}
 
         self.json['__class__'] = class_name
         if class_name is None:
-            raise RuntimeError(f"Cannot find class name for {type(obj)} with builders {self.factory.spec_to_builder.keys()}")
+            raise RuntimeError(f"Cannot get class spec for {type(obj)}")
 
         if self.is_ref is None:
             if id(obj) in self.refs[class_name]:
@@ -169,6 +179,9 @@ class Writer(traversal.Visitor[ExpectedType]):
         # Must be called at the end of any marshal method. Tells this object that we are done visiting the body of that object
         pass
 
+    def owner(self, target: ExpectedType, owner_prop_name: str):
+        pass
+
     def verbatim(self,
         data_type: typing.Type, 
         target: serializable.Serializable, 
@@ -182,7 +195,7 @@ class Writer(traversal.Visitor[ExpectedType]):
         if getattr(target, prop_name) is not None and not self.is_ref:
             self.json[prop_name] = getattr(target, prop_name)
 
-    def scalar(self, element_builder: construction.Builder, target: typing.Any, prop_name: str):
+    def scalar(self, target: typing.Any, prop_name: str):
         # For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         # Expect that the attribute value is probably not a reference to a shared object (though it may be)
         # For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name.
@@ -191,30 +204,33 @@ class Writer(traversal.Visitor[ExpectedType]):
         if self.is_ref: return
 
         if getattr(target,prop_name) is not None:
-            writer = Writer(getattr(target,prop_name), self.factory, self.refs)
+            item = getattr(target,prop_name)
+            writer = Writer(self.builder.get_peer(item['__class__']), item, self.refs)
             writer.write()
             self.json[prop_name] = writer.json
 
-    def array(self, element_builder: construction.Builder, target: typing.Any, prop_name: str):
+    def array(self, target: typing.Any, prop_name: str):
         # For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         # Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
         if self.is_ref: return
 
         if getattr(target,prop_name) is not None:
-            self.json[prop_name] = []
+            prop_value = []
             for item in getattr(target,prop_name):
-                writer = Writer(item, self.factory, self.refs)
+                writer = Writer(self.builder.get_peer(item['__class__']), item, self.refs)
                 writer.write()
-                self.json[prop_name].append(writer.json)
+                prop_value.append(writer.json)
+            self.json[prop_name] = prop_value
+        print(f"DEBUG: Written value of array[{self.builder.get_class_spec()}] is {prop_value}")
 
-    def map(self, key_type: typing.Type, element_builder: construction.Builder, target: typing.Any, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, target: typing.Any, prop_name: str) -> None:
         if self.is_ref: return
 
         if getattr(target,prop_name) is not None:
             self.json[prop_name] = {}
             for key, value in getattr(target,prop_name).items():
-                writer = Writer(value, self.factory, self.refs)
+                writer = Writer(self.builder.get_peer(value['__class__']), value, self.refs)
                 writer.write()
                 self.json[prop_name][key] = writer.json
 
@@ -231,7 +247,7 @@ class Writer(traversal.Visitor[ExpectedType]):
 def to_json(factory: construction.Factory, obj: typing.Any, path: typing.List[typing.Any]):
     use_path = path or []
     if isinstance(obj, serializable.Serializable):
-        writer = Writer(obj, factory, {})
+        writer = Writer(obj.__class__.Builder(), {})
         writer.write()
         return writer.json
     elif type(obj) in (list,tuple):
@@ -247,7 +263,7 @@ def to_json(factory: construction.Factory, obj: typing.Any, path: typing.List[ty
 
 def from_json(factory: construction.Factory, json: typing.Any):
     if type(json) == dict and '__class__' in json and factory.has_class(json['__class__']):
-        reader = Reader(json, factory, {})
+        reader = Reader(factory.get_builder(json['__class__']), json, {})
         reader.read()
         return reader.obj
     elif type(json) in (list,tuple):

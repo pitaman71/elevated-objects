@@ -1,6 +1,6 @@
 import { Builder } from './construction';
-import { Serializable } from './Serializable';
-import { Visitor } from './traversal';
+import * as serialization from './serialization';
+import * as traversal from './traversal';
 
 enum Result {
     Unknown = 0,
@@ -9,7 +9,7 @@ enum Result {
     Greater = 1
 }
 
-class DefaultComparator<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
+class Comparator<ExpectedType extends serialization.Serializable> implements traversal.Visitor<ExpectedType> {
     a: any;
     b: any;
     result: Result;
@@ -29,11 +29,14 @@ class DefaultComparator<ExpectedType extends Serializable> implements Visitor<Ex
         return this.result;
     }
 
+    owner(target: ExpectedType, ownerPropName: string) {        
+    }
+
     verbatim<DataType>(
         target: any, 
         propName: string,
-        getValue: (target: Serializable) => any,
-        setValue: (target: Serializable, value: any) => void,
+        getValue: (target: ExpectedType) => any,
+        setValue: (target: ExpectedType, value: any) => void,
         getPropNames: () => Array<string>        
     ): Result {
         if(this.result !== Result.Equal) {
@@ -87,8 +90,7 @@ class DefaultComparator<ExpectedType extends Serializable> implements Visitor<Ex
         return this.result;
     }
 
-    scalar<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
+    scalar<ElementType extends serialization.Serializable>(
         target: any, 
         propName: string
     ): Result {
@@ -119,8 +121,7 @@ class DefaultComparator<ExpectedType extends Serializable> implements Visitor<Ex
         return this.result;
     }
 
-    array<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
+    array<ElementType extends serialization.Serializable>(
         target: any, 
         propName: string
     ): Result {
@@ -140,8 +141,7 @@ class DefaultComparator<ExpectedType extends Serializable> implements Visitor<Ex
         return this.result;
     }
 
-    map<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>, 
+    map<ElementType extends serialization.Serializable>(
         target: any, 
         propName: string
     ): Result {
@@ -179,8 +179,8 @@ export function cmp(a: any, b:any): Result {
         return Result.Greater;
     }
 
-    if(a instanceof Serializable && b instanceof Serializable) {
-        const comparator = new DefaultComparator(a,b);
+    if(a instanceof serialization.Serializable && b instanceof serialization.Serializable) {
+        const comparator = new Comparator(a,b);
         a.marshal(comparator);
         return comparator.result;
     }
