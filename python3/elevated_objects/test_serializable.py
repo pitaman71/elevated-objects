@@ -306,10 +306,10 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
                 obj = json.load(fp)
                 reader = json_marshal.Reader(self.Factory(factories), obj, {})
                 self.marshal(reader)
-            with open(self.get_static_pattern_path()+".output", 'wt') as fp:
-                writer = json_marshal.Writer(self.Factory(factories), self, {})
-                self.marshal(writer)
-                json.dump(writer.json, fp, indent=2)
+            # with open(self.get_static_pattern_path()+".output", 'wt') as fp:
+            #     writer = json_marshal.Writer(self.Factory(factories), self, {})
+            #     self.marshal(writer)
+            #     json.dump(writer.json, fp, indent=2)
 
         else:
             self.dirty = True
