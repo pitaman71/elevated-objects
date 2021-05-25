@@ -4,7 +4,7 @@ from __future__ import annotations
 import typing
 import enum
 
-from parts_bin.task import function_task
+from code_instruments.task import function, Tally
 from . import construction
 from . import serializable
 from . import traversal
@@ -17,6 +17,8 @@ class Result(enum.Enum):
     Equal = 0
     Greater = 1
 
+tally = Tally()
+
 class DefaultComparator(traversal.Visitor):
     a: serializable.Serializable
     b: serializable.Serializable    
@@ -27,16 +29,16 @@ class DefaultComparator(traversal.Visitor):
         self.b = b
         self.result = Result.Unknown
 
-    @function_task()
+    @function(tally)
     def begin(self, obj: serializable.ExpectedType, parent_prop_name: str = None) -> Result:
         self.result = Result.Equal
         return self.result
 
-    @function_task()
+    @function(tally)
     def end(self, obj: serializable.ExpectedType) -> Result:
         return self.result
 
-    @function_task()
+    @function(tally)
     def verbatim(self, 
         data_type: typing.Type, 
         target: serializable.Serializable, 
@@ -60,7 +62,7 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Greater
         return self.result
 
-    @function_task()
+    @function(tally)
     def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> Result:
         if self.result != Result.Equal:
             return self.result
@@ -155,7 +157,7 @@ class DefaultComparator(traversal.Visitor):
             self.result = Result.Greater
         return self.result
 
-@function_task(logMethod=True)
+@function(tally)
 def cmp(a: serializable.Serializable, b: serializable.Serializable):
     if a.__class__.__qualname__ < b.__class__.__qualname__: return -1
     if a.__class__.__qualname__ > b.__class__.__qualname__: return 1

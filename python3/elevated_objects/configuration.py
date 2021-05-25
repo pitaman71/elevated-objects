@@ -14,9 +14,11 @@ from . import serializable
 from . import source_code
 from . import traversal
 
-from parts_bin.task import function_task
+from code_instruments.task import function, Tally
 from lorem_text import lorem
-    
+
+tally = Tally()
+
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
 PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
 
@@ -674,7 +676,7 @@ class SymbolTableMutator:
         self.before = before
         self.after = None
 
-    @function_task(logMethod=True)
+    @function(tally)
     def __call__(self)  -> typing.Union[SymbolTable, None]:
         self.after = dict(self.before)
 
