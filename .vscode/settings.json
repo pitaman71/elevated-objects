@@ -1,5 +1,4 @@
 {
-    "python.venvPath": "${workspaceFolder}/python3/venv",
     "python.analysis.extraPaths": [ "${workspaceFolder}/python3" ],
     "python.linting.enabled": true
 }
