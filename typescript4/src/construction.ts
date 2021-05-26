@@ -1,3 +1,4 @@
+import { throws } from 'node:assert';
 import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
@@ -29,6 +30,7 @@ export class Factories {
 }
 
 export class Initializer<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
+    factories: Factories;
     factory: Factory<ExpectedType>;
     initializers: any[];
     obj?: ExpectedType;
@@ -37,14 +39,21 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     end(obj: ExpectedType): void {}
     owner(target: ExpectedType, ownerPropName: string): void {}
 
-    constructor(factory: Factory<ExpectedType>, ...initializers: any[]) {
+    constructor(
+        factories: Factories,
+        factory: Factory<ExpectedType>,
+        ...initializers: any[]
+    ) {
+        this.factories = factories;    
         this.factory = factory;
         this.initializers = initializers;
     }
 
+    getFactories(): Factories { return this.factories; }
+
     clone(... initializers: any[]): Serializable {
         const result = this.factory.make();
-        const initializer = new Initializer(this.factory, ... initializers);
+        const initializer = new Initializer(this.factories, this.factory, ... initializers);
         result.marshal(initializer);
         return result;
     }

@@ -34,9 +34,13 @@ class Factories:
         return self.spec_to_builder[class_spec].make()
 
 class Initializer(traversal.Visitor[ExpectedType]):
+    factories: Factories
     factory: Factory[ExpectedType]
     initializers: typing.List[typing.Any]
     obj: ExpectedType
+
+    def get_factories(self) -> Factories:
+        return self.factories
 
     def begin(self, obj: ExpectedType):
         self.obj = obj

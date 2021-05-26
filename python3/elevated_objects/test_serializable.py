@@ -146,7 +146,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
             self.dirty = False
             with open(self.get_static_pattern_path(), 'rt') as fp:
                 obj = json.load(fp)
-                reader = json_marshal.Reader(self.Factory(factories), obj, {})
+                reader = json_marshal.Reader(factories, self.Factory(factories), obj, {})
                 self.marshal(reader)
         else:
             self.dirty = True
@@ -155,7 +155,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
     def tearDown(self):
         if self.dirty:
             with open(self.get_static_pattern_path(), 'wt') as fp:
-                writer = json_marshal.Writer(self.Factory(factories), self, {})
+                writer = json_marshal.Writer(factories, self.Factory(factories), self, {})
                 writer.write()
                 json.dump(writer.json, fp, indent=2)
 
@@ -213,7 +213,7 @@ class GenericTestVerbatim(serializable.Serializable):
             self.dirty = False
             with open(static_pattern_path, 'rt') as fp:
                 obj = json.load(fp)
-                reader = json_marshal.Reader(self.Factory(factories, self.data_type), obj, {})
+                reader = json_marshal.Reader(factories, self.Factory(factories, self.data_type), obj, {})
                 self.marshal(reader)
         else:
             self.dirty = True
@@ -222,7 +222,7 @@ class GenericTestVerbatim(serializable.Serializable):
     def tearDown(self, static_pattern_path: str):
         if self.dirty:
             with open(static_pattern_path, 'wt') as fp:
-                writer = json_marshal.Writer(self.Factory(factories, self.data_type), self, {})
+                writer = json_marshal.Writer(factories, self.Factory(factories, self.data_type), self, {})
                 writer.write()
                 json.dump(writer.json, fp, indent=2)
 
@@ -304,7 +304,7 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
             self.dirty = False
             with open(self.get_static_pattern_path(), 'rt') as fp:
                 obj = json.load(fp)
-                reader = json_marshal.Reader(self.Factory(factories), obj, {})
+                reader = json_marshal.Reader(factories, self.Factory(factories), obj, {})
                 self.marshal(reader)
             # with open(self.get_static_pattern_path()+".output", 'wt') as fp:
             #     writer = json_marshal.Writer(self.Factory(factories), self, {})
@@ -318,7 +318,7 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
     def tearDown(self):
         if self.dirty:
             with open(self.get_static_pattern_path(), 'wt') as fp:
-                writer = json_marshal.Writer(self.Factory(factories), self, {})
+                writer = json_marshal.Writer(factories, self.Factory(factories), self, {})
                 writer.write()
                 json.dump(writer.json, fp, indent=2)
 

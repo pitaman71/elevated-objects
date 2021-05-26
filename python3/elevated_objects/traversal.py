@@ -12,6 +12,10 @@ PropType = typing.TypeVar('PropType')
 
 class Visitor(serializable.Visitor[ExpectedType]): 
     @abc.abstractmethod
+    def get_factories(self) -> construction.Factories:
+        pass
+
+    @abc.abstractmethod
     def begin(self, obj: ExpectedType) -> None:
         pass
 
