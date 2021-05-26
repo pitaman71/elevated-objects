@@ -1,33 +1,26 @@
 import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
-export class Factory {
-    specToBuilder: { [key: string]: Builder<Serializable> };
+export class Factories {
+    specToBuilder: { [key: string]: Factory<Serializable> };
 
     constructor() {
         this.specToBuilder = {};
     }
     
-    addBuilders(builders: Builder<any>[]) {
-        builders.forEach((builder: Builder<any>) => {
-            const classSpec = builder.getClassSpec();
-            if(Object.getOwnPropertyNames(this.specToBuilder).includes(classSpec)) {
-                throw new Error(`Duplicate definition of class_spec ${classSpec}`);
-            }
-            this.specToBuilder[classSpec] = builder;
-        });
+    register(classSpec: string, factoryMaker: () => Factory<any>) {
+        if(!Object.getOwnPropertyNames(this.specToBuilder).includes(classSpec)) {
+            this.specToBuilder[classSpec] = factoryMaker();
+        }
+        return this.specToBuilder[classSpec];
     }
 
     hasClass(classSpec?: string): boolean {
         return !!classSpec && this.specToBuilder.hasOwnProperty(classSpec);
     }
 
-    getBuilder(classSpec: string): Builder<any> {
+    getFactory(classSpec: string): Factory<any> {
         return this.specToBuilder[classSpec];
-    }
-
-    getBuilderOf(obj: Serializable): Builder<any> {
-        return obj.__builder__;
     }
 
     make(classSpec: string): Serializable {
@@ -36,28 +29,28 @@ export class Factory {
 }
 
 export class Initializer<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
-    builder: Builder<ExpectedType>;
+    factory: Factory<ExpectedType>;
     initializers: any[];
     obj?: ExpectedType;
 
-    begin(obj: ExpectedType, parentPropName?: string): void { this.obj = obj; }
+    begin(obj: ExpectedType): void { this.obj = obj; }
     end(obj: ExpectedType): void {}
     owner(target: ExpectedType, ownerPropName: string): void {}
 
-    constructor(builder: Builder<ExpectedType>, ...initializers: any[]) {
-        this.builder = builder;
+    constructor(factory: Factory<ExpectedType>, ...initializers: any[]) {
+        this.factory = factory;
         this.initializers = initializers;
     }
 
     clone(... initializers: any[]): Serializable {
-        const result = this.builder.make();
-        const initializer = new Initializer(this.builder, ... initializers);
+        const result = this.factory.make();
+        const initializer = new Initializer(this.factory, ... initializers);
         result.marshal(initializer);
         return result;
     }
 
     verbatim<DataType>(
-        target: any, 
+        target: Serializable, 
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void,
         getPropNames: () => Array<string>
@@ -80,7 +73,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     scalar<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -90,12 +83,12 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
         if(newValues.length == 1) {
             target[propName] = newValues[0];
         } else if(newValues.length > 1) {
-            target[propName] = elementBuilder.clone(... newValues);
+            target[propName] = this.clone(... newValues);
         }
     }
 
     array<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -116,9 +109,11 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
                         (collected: ElementType[], initializer: any) => 
                         [ ... collected, initializer[propName][index]]
                     , []);
-                    return elementValues.length 
+                    return elementValues.length == 0 
                         ? arrayValue 
-                        : [ ... arrayValue, elementBuilder.clone(... elementValues) ];
+                        : elementValues.length == 1
+                        ? [ ... arrayValue, elementValues[0] ]
+                        : [ ... arrayValue, this.clone(... elementValues) ];
                 }
             , []);
             target[propName] = newArrayValue;
@@ -126,7 +121,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     map<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string        
     ): void {
@@ -151,7 +146,7 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
             const elementValue: ElementType = 
                 elementValues.length == 0 ? undefined :
                 elementValues.length == 1 ? elementValues[1] :
-                elementBuilder.clone(... elementValues);
+                this.clone(... elementValues);
             return { ... newValue, [propName]: elementValue };
         }, {});
     }
@@ -161,44 +156,86 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 }
 
+type Allocator = (factory: Factory<any>, initializer?: any) => any;
+
+export class Factory<ExpectedType extends Serializable> {
+    classSpec: string;
+    allocators: { [key: string]: Allocator };
+
+    static abstract(classSpec: string) {
+        const result = new Factory(classSpec);
+        return result;
+    }
+
+    static concrete(classSpec: string, 
+        allocator: Allocator
+    ) {
+        const result = new Factory(classSpec);
+        result.allocators = { [classSpec]: allocator };
+        return result;
+    }
+
+    static derived(classSpec: string, 
+        allocator: Allocator,
+        parentFactories: Factory<any>[]
+    ) {
+        const result = new Factory(classSpec);
+        result.allocators = { [classSpec]: allocator };
+        parentFactories.forEach((parentFactory: Factory<any>) => {
+            parentFactory.allocators = { 
+                ... parentFactory.allocators,
+                ... result.allocators
+            };
+        });
+        return result;
+    }
+
+    constructor(classSpec: string) {
+        this.classSpec = classSpec;
+        this.allocators = {};
+    }
+
+    getClassSpec() {
+        return this.classSpec;
+    }
+
+    make(classSpec?: string): ExpectedType {
+        if(classSpec === undefined) {
+            classSpec = this.classSpec;
+        }
+
+        if(!Object.getOwnPropertyNames(this.allocators).includes(classSpec)) {
+            throw new Error(`Object of type ${classSpec}is not compatible with ${Object.getOwnPropertyNames(this.allocators)}`);
+        }
+        const result = this.allocators[classSpec](this);
+        result.__factory__ = this;
+        return result
+    }
+}
+
 export class Builder<ExpectedType extends Serializable> {
-    factory: Factory;
+    factory: Factory<ExpectedType>;
     classSpec: string
-    allocator: (initializer?: any) => ExpectedType;
     whenDone: (initializer?: any) => ExpectedType;
-    built: ExpectedType;
+    built: ExpectedType|null;
 
     constructor(
-        factory: Factory,
+        factory: Factory<ExpectedType>,
         classSpec: string,
-        allocator: (initializer?: any) => ExpectedType,
         whenDone: (initializer?: any) => ExpectedType = (x) => x,
         built?: ExpectedType
     ) {
         this.factory = factory;
         this.classSpec = classSpec
-        this.allocator = allocator;
         this.whenDone = whenDone;
-        this.built = built || allocator();
-        this.built.__builder__ = this;
+        this.built = built || factory.make();
     }
 
     getClassSpec() { return this.classSpec; }
 
-    make(initializer?: any): ExpectedType {
-        const result = this.allocator(initializer);
-        result.__builder__ = this;
-        return result;
-    }
-
-    clone(...initializers: Array<Serializable>): ExpectedType {
-        const result = this.allocator();
-        const initializer = new Initializer(this, ...initializers);
-        result.marshal(initializer);
-        return result;
-    }
-
     done(finisher: (built: ExpectedType) => Serializable = (x) => x): Serializable {
-        return finisher(this.whenDone(this.built));
+        const result = this.built;
+        this.built = null;
+        return finisher(this.whenDone(result));
     }
 }

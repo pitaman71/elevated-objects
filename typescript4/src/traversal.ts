@@ -1,4 +1,4 @@
-import { Builder } from './construction';
+import { Factory } from './construction';
 import { Serializable } from './serialization';
 
 export abstract class Visitor<ExpectedType extends Serializable> {
@@ -17,17 +17,17 @@ export abstract class Visitor<ExpectedType extends Serializable> {
         propName: string, 
         fromString?: (initializer:string) => PropType): void;
     abstract scalar<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string
     ): void;
     abstract array<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string
     ): void;
     abstract map<ElementType extends Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string
     ): void;

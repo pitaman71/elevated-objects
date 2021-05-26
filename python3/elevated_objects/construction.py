@@ -38,7 +38,7 @@ class Initializer(traversal.Visitor[ExpectedType]):
     initializers: typing.List[typing.Any]
     obj: ExpectedType
 
-    def begin(self, obj: ExpectedType, parent_prop_name: str = None):
+    def begin(self, obj: ExpectedType):
         self.obj = obj
 
     def end(self, obj: ExpectedType):
@@ -52,8 +52,8 @@ class Initializer(traversal.Visitor[ExpectedType]):
         self.initializers = list(initializers)
 
     def clone(self, *initializers: object) -> serializable.Serializable:
-        result = self.builder.make()
-        initializer = Initializer(self.builder, *initializers)
+        result = self.factory.make()
+        initializer = Initializer(self.factory, *initializers)
         result.marshal(initializer)
         return result
 
@@ -83,16 +83,16 @@ class Initializer(traversal.Visitor[ExpectedType]):
                 typed_value = new_value
             setattr(target, prop_name, typed_value)
 
-    def scalar(self, element_builder: Factory, target, prop_name: str):
+    def scalar(self, element_factory: Factory, target, prop_name: str):
         new_values = [
             getattr(initializer, prop_name) for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
         if len(new_values) == 1:
             return setattr(target, prop_name, new_values[0])
         elif len(new_values) > 1:
-            return setattr(target, prop_name, element_builder.clone(*new_values))
+            return setattr(target, prop_name, element_factory.clone(*new_values))
 
-    def array(self, element_builder: Factory, target, prop_name: str):
+    def array(self, element_factory: Factory, target, prop_name: str):
         has_property = [
             initializer for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
@@ -110,11 +110,11 @@ class Initializer(traversal.Visitor[ExpectedType]):
                 elif len(element_values) == 1:
                     new_element_value = element_values[0]
                 else:
-                    new_element_value = element_builder.clone(*element_values)
+                    new_element_value = element_factory.clone(*element_values)
                 new_array_value.append(new_element_value)
             setattr(target, prop_name, new_array_value)
 
-    def map(self, key_type: typing.Type, element_builder: Factory, target, prop_name: str):
+    def map(self, key_type: typing.Type, element_factory: Factory, target, prop_name: str):
         has_property = [
             initializer for initializer in self.initializers if hasattr(initializer, prop_name)
         ]
@@ -130,7 +130,7 @@ class Initializer(traversal.Visitor[ExpectedType]):
             elif len(element_values) == 1:
                 new_element_value = element_values[0]
             else:
-                new_element_value = element_builder.clone(*element_values)
+                new_element_value = element_factory.clone(*element_values)
             new_value[key] = new_element_value
         setattr(target, prop_name, new_value)
 
@@ -138,6 +138,7 @@ class Initializer(traversal.Visitor[ExpectedType]):
         target.marshal(self)
 
 class Factory(typing.Generic[ExpectedType]):
+    class_spec: str
     allocators: typing.Dict[ str, typing.Callable[ [], ExpectedType ] ]
 
     @classmethod
@@ -171,14 +172,13 @@ class Factory(typing.Generic[ExpectedType]):
         
     def make(self, class_spec: str):
         if class_spec is None:
-            if len(self.allocators.keys()) != 1:
-                raise RuntimeError('JSON object type is ambiguous')
-            result = self.allocators.values()[0]()
-        elif class_spec in self.allocators:
-            result = self.allocators[class_spec]()
-        else:
+            class_spec = self.class_spec
+
+        if class_spec not in self.allocators:
             raise RuntimeError(f"Object of type {class_spec} is not compatible with {self.allocators.keys()}")
-        result.__class_spec__ = class_spec
+
+        result = self.allocators[class_spec]()
+        result.__factory__ = self
         return result
 
 class Builder(typing.Generic[ExpectedType]):

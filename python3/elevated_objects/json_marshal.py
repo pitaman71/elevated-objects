@@ -53,7 +53,6 @@ class Reader(traversal.Visitor[ExpectedType]):
                     self.is_ref = True
                 else:
                     by_id[self.json['__id__']] = self.obj
-            self.obj.__class_spec__ = self.json.get('__class__')
 
     def end(self, obj:ExpectedType):
         # Must be called at the end of any marshal method. Tells this object that we are done visiting the body of that object
@@ -165,7 +164,7 @@ class Writer(traversal.Visitor[ExpectedType]):
         # Must be called at the start of any marshal method. Tells this object that we are visiting the body of that object next"""
         self.json = {}
         
-        class_name = obj.__class_spec__ or self.factory.get_class_spec()
+        class_name = obj.__factory__.get_class_spec() if obj.__factory__ else self.factory.get_class_spec()
         if class_name not in self.refs:
             self.refs[class_name] = {}
 

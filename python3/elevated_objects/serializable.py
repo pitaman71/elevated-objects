@@ -5,7 +5,7 @@ import abc
 import typing
 
 class Serializable(abc.ABC):
-    __class__: str
+    __factory__: typing.Any
 
     @abc.abstractmethod
     def marshal(self, visitor: Visitor) -> None:

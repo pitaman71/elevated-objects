@@ -2,7 +2,7 @@ import * as traversal from './traversal';
 import * as JSONMarshal from './JSONMarshal';
 
 export abstract class Serializable {
-    __builder__: any
+    __factory__: any
 
     abstract marshal(visitor: traversal.Visitor<this>): void;
 
