@@ -1,9 +1,7 @@
-import { Factory, Factories } from './construction';
+import { Factory } from './construction';
 import { Serializable } from './serialization';
 
 export abstract class Visitor<ExpectedType extends Serializable> {
-    abstract getFactories(): Factories; 
-
     abstract begin(obj: ExpectedType): void;
     abstract end(obj: ExpectedType): void;
 

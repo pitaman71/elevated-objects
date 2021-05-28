@@ -4,17 +4,12 @@ from __future__ import annotations
 import abc
 import typing
 
-from . import serializable
 from . import construction
+from . import serializable
 
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
-PropType = typing.TypeVar('PropType')
 
 class Visitor(serializable.Visitor[ExpectedType]): 
-    @abc.abstractmethod
-    def get_factories(self) -> construction.Factories:
-        pass
-
     @abc.abstractmethod
     def begin(self, obj: ExpectedType) -> None:
         pass
@@ -38,17 +33,17 @@ class Visitor(serializable.Visitor[ExpectedType]):
         pass
 
     @abc.abstractmethod
-    def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], PropType ] = None) -> None:
+    def primitive(self, data_type: typing.Type, target: serializable.Serializable, prop_name: str, fromString: typing.Callable[ [str], typing.Any ] = None) -> None:
         pass
 
     @abc.abstractmethod
-    def scalar(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
+    def scalar(self, element_factory: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
     @abc.abstractmethod
-    def array(self, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
+    def array(self, element_factory: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         pass
 
     @abc.abstractmethod
-    def map(self, key_type: typing.Type, element_builder: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
+    def map(self, key_type: typing.Type, element_factory: construction.Factory, target: serializable.Serializable, prop_name: str) -> None:
         pass

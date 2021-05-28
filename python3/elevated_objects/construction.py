@@ -7,40 +7,13 @@ import functools
 from . import serializable
 from . import traversal
 
+DoneType = typing.TypeVar('DoneType')
 ExpectedType = typing.TypeVar('ExpectedType', bound=serializable.Serializable)
-PropType = typing.TypeVar('PropType', bound=serializable.Serializable)
-
-class Factories:
-    spec_to_builder: typing.Dict[ str, Factory ]
-
-    def __init__(self):
-        self.spec_to_builder = {}
-
-    def register(self, class_spec: str, factory_maker: typing.Callable[ [], Factory ]):
-        if(class_spec not in self.spec_to_builder):
-            self.spec_to_builder[class_spec] = factory_maker()
-        return self.spec_to_builder[class_spec]
-
-    def has_class(self, class_spec: typing.Union[str, None]) -> bool:
-        return class_spec is not None and class_spec in self.spec_to_builder
-
-    def get_builder(self, class_spec: str) -> Factory:
-        return self.spec_to_builder[class_spec]
-
-    def get_builder_of(self, obj: serializable.Serializable) -> Factory:
-        return obj.__class.__.Factory(self)
-
-    def make(self, class_spec:str) -> serializable.Serializable:
-        return self.spec_to_builder[class_spec].make()
 
 class Initializer(traversal.Visitor[ExpectedType]):
-    factories: Factories
     factory: Factory[ExpectedType]
     initializers: typing.List[typing.Any]
     obj: ExpectedType
-
-    def get_factories(self) -> Factories:
-        return self.factories
 
     def begin(self, obj: ExpectedType):
         self.obj = obj
@@ -142,8 +115,13 @@ class Initializer(traversal.Visitor[ExpectedType]):
         target.marshal(self)
 
 class Factory(typing.Generic[ExpectedType]):
+    pass
+
+Allocator = typing.Callable[ [ Factory[ExpectedType] ], ExpectedType ]
+
+class Factory(typing.Generic[ExpectedType]):
     class_spec: str
-    allocators: typing.Dict[ str, typing.Callable[ [], ExpectedType ] ]
+    allocators: Allocator[ExpectedType]
 
     @classmethod
     def abstract(cls, class_spec: str):
@@ -151,14 +129,14 @@ class Factory(typing.Generic[ExpectedType]):
         return result
 
     @classmethod
-    def concrete(cls, class_spec: str, allocator: typing.Callable[ [], ExpectedType ]):
+    def concrete(cls, class_spec: str, allocator: Allocator[ExpectedType]):
         result = Factory(class_spec)
         result.allocators = { class_spec: allocator }
         return result
 
     @classmethod
     def derived(cls, class_spec: str, 
-        allocator: typing.Callable[ [], ExpectedType ],
+        allocator: Allocator[ExpectedType],
         parent_factories: typing.List[ Factory ]
     ):
         result = Factory(class_spec)
@@ -185,22 +163,44 @@ class Factory(typing.Generic[ExpectedType]):
         result.__factory__ = self
         return result
 
-class Builder(typing.Generic[ExpectedType]):
-    factory: Factory[ExpectedType]
-    class_spec: any
-    when_done: typing.Callable = lambda x: x
-    built: ExpectedType = None
+class Factories:
+    spec_to_builder: typing.Dict[ str, Factory ]
 
-    def __init__(self, factory: Factory[ExpectedType], class_spec: any, when_done: typing.Callable = lambda x: x, built: ExpectedType = None):
+    def __init__(self):
+        self.spec_to_builder = {}
+
+    def register(self, class_spec: str, factory_maker: typing.Callable[ [], Factory ]):
+        if(class_spec not in self.spec_to_builder):
+            self.spec_to_builder[class_spec] = factory_maker()
+        return self.spec_to_builder[class_spec]
+
+    def has_class(self, class_spec: typing.Union[str, None]) -> bool:
+        return class_spec is not None and class_spec in self.spec_to_builder
+
+    def get_builder(self, class_spec: str) -> Factory:
+        return self.spec_to_builder[class_spec]
+
+    def get_builder_of(self, obj: serializable.Serializable) -> Factory:
+        return obj.__class.__.Factory()
+
+    def make(self, class_spec:str) -> serializable.Serializable:
+        return self.spec_to_builder[class_spec].make()
+
+factories = Factories()
+
+class Builder(typing.Generic[ExpectedType, DoneType]):
+    factory: Factory[ExpectedType]
+    when_done: typing.Callable[ [ ExpectedType ], DoneType ] = lambda x: x
+    built: ExpectedType
+
+    def __init__(self, factory: Factory[ExpectedType], when_done: typing.Callable[ [ ExpectedType ], DoneType ] = lambda x: x, built: ExpectedType = None):
         self.factory = factory
-        self.class_spec = class_spec
         self.when_done = when_done
         self.built = built or factory.make()
 
     def get_class_spec(self):
-        return self.class_spec
+        return self.factory.class_spec
         
-    def done(self, finisher: typing.Callable [ [ ExpectedType ], serializable.Serializable] = lambda x:x) -> serializable.Serializable:
-        result = self.built
-        self.built = None
-        return finisher(self.when_done(result))
+    def done(self, finisher: typing.Callable [ [ ExpectedType ], ExpectedType] = lambda x:x) -> DoneType:
+        return self.when_done(finisher(self.built))
+

@@ -1,4 +1,4 @@
-import { Builder } from './construction';
+import { Factory } from './construction';
 import * as serialization from './serialization';
 import * as traversal from './traversal';
 
@@ -111,7 +111,7 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
     }
 
     scalar<ElementType extends serialization.Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string
     ): Result {
@@ -147,7 +147,7 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
     }
 
     array<ElementType extends serialization.Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string
     ): Result {
@@ -179,7 +179,7 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
     }
 
     map<ElementType extends serialization.Serializable>(
-        elementBuilder: Builder<ElementType>,
+        elementFactory: Factory<ElementType>,
         target: any, 
         propName: string
     ): Result {

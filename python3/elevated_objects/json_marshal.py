@@ -19,7 +19,6 @@ RefTable = typing.Dict[ typing.Union[int, str], typing.Dict[ int, serializable.S
 logger=None
 
 class Reader(traversal.Visitor[ExpectedType]):
-    factories: construction.Factories
     factory: construction.Factory[ExpectedType]
     json: typing.Any
     obj: typing.Union[ExpectedType, None]
@@ -27,16 +26,12 @@ class Reader(traversal.Visitor[ExpectedType]):
     is_ref: bool
 
     # Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
-    def __init__(self, factories: construction.Factories, factory: construction.Factory[ExpectedType], json: typing.Any, refs: RefTable):
+    def __init__(self, factory: construction.Factory[ExpectedType], json: typing.Any, refs: RefTable):
+        self.factory = factory
         self.json = json
         self.obj = None
-        self.factories = factories
-        self.factory = factory
         self.refs = refs if refs else dict()
         self.is_ref = False
-
-    def get_factories(self) -> construction.Factories:
-        return self.factories
 
     def jsonPreview(self) -> str:
         return json.dumps(self.json)[0:80]
@@ -98,7 +93,7 @@ class Reader(traversal.Visitor[ExpectedType]):
             if item is None:
                 setattr(target, prop_name, None)
             else:
-                reader = Reader(self.factories, element_builder, self.json[prop_name], self.refs)
+                reader = Reader(element_builder, self.json[prop_name], self.refs)
                 reader.read()
                 if reader.obj is not None:
                     setattr(target, prop_name, reader.obj)
@@ -116,7 +111,7 @@ class Reader(traversal.Visitor[ExpectedType]):
                 if item is None:
                     new_value.append(None)
                 else:
-                    reader = Reader(self.factories, element_builder, item, self.refs)
+                    reader = Reader(element_builder, item, self.refs)
                     reader.read()
                     new_value.append(reader.obj)
             setattr(target, prop_name, new_value)
@@ -131,7 +126,7 @@ class Reader(traversal.Visitor[ExpectedType]):
                 if value is None:
                     new_value[key] = None
                 else:
-                    reader = Reader(self.factories, element_builder, value, self.refs)
+                    reader = Reader(element_builder, value, self.refs)
                     reader.read()
                     new_value[key] = reader.obj
             setattr(target, prop_name, new_value)
@@ -150,7 +145,6 @@ class Reader(traversal.Visitor[ExpectedType]):
             return new_object
 
 class Writer(traversal.Visitor[ExpectedType]):
-    factories: construction.Factories
     builder: construction.Factory[ExpectedType]
     obj:ExpectedType
     json: typing.Any
@@ -158,16 +152,12 @@ class Writer(traversal.Visitor[ExpectedType]):
     is_ref: typing.Union[bool, None]
 
     # Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
-    def __init__(self, factories: construction.Factories, factory: construction.Factory[ExpectedType], obj: ExpectedType, refs: RefTable):
-        self.factories = factories
+    def __init__(self, factory: construction.Factory[ExpectedType], obj: ExpectedType, refs: RefTable):
         self.factory = factory
         self.obj = obj
         self.json = None
         self.refs = refs if refs is not None else dict()
         self.is_ref = None
-
-    def get_factories(self) -> construction.Factories:
-        return self.factories
 
     @method(logger=logger)
     def begin(self, obj: ExpectedType):
@@ -235,7 +225,7 @@ class Writer(traversal.Visitor[ExpectedType]):
             if item is None:
                 self.json[prop_name] = None
             else:
-                writer = Writer(self.factories, element_builder, item, self.refs)
+                writer = Writer(element_builder, item, self.refs)
                 writer.write()
                 self.json[prop_name] = writer.json
 
@@ -252,7 +242,7 @@ class Writer(traversal.Visitor[ExpectedType]):
                 if item is None:
                     prop_value.append(None)
                 else:
-                    writer = Writer(self.factories, element_builder, item, self.refs)
+                    writer = Writer(element_builder, item, self.refs)
                     writer.write()
                     prop_value.append(writer.json)
             self.json[prop_name] = prop_value
@@ -264,7 +254,7 @@ class Writer(traversal.Visitor[ExpectedType]):
         if getattr(target,prop_name) is not None:
             self.json[prop_name] = {}
             for key, value in getattr(target,prop_name).items():
-                writer = Writer(self.factories, element_builder, value, self.refs)
+                writer = Writer(element_builder, value, self.refs)
                 writer.write()
                 self.json[prop_name][key] = writer.json
 
@@ -278,40 +268,40 @@ class Writer(traversal.Visitor[ExpectedType]):
 
         return self.json
 
-def to_json(factories: construction.Factories, obj: typing.Any, path: typing.List[typing.Any]):
+def to_json(obj: typing.Any, path: typing.List[typing.Any]):
     use_path = path or []
     if isinstance(obj, serializable.Serializable):
-        writer = Writer(factories, factories.get_builder_of(obj), {})
+        writer = Writer(construction.factories.get_builder_of(obj), {})
         writer.write()
         return writer.json
     elif type(obj) in (list,tuple):
-        result = [ to_json(factories, obj[index], use_path + [ index ]) for index in range(len(obj)) ]
+        result = [ to_json(obj[index], use_path + [ index ]) for index in range(len(obj)) ]
         return result
     elif type(obj) in (dict,):
         result = {}
         for prop_name, value in obj.items():
-            result[prop_name] = to_json(factories, obj[prop_name], use_path + [ prop_name ])
+            result[prop_name] = to_json(obj[prop_name], use_path + [ prop_name ])
         return result
     else:
         return obj
 
-def from_json(factories: construction.Factories, json: typing.Any):
-    if type(json) == dict and '__class__' in json and factories.has_class(json['__class__']):
-        reader = Reader(factories, factories.get_builder(json['__class__']), json, {})
+def from_json(json: typing.Any):
+    if type(json) == dict and '__class__' in json and construction.factories.has_class(json['__class__']):
+        reader = Reader(construction.factories.get_builder(json['__class__']), json, {})
         reader.read()
         return reader.obj
     elif type(json) in (list,tuple):
-        return [ from_json(factories, item) for item in json ]
+        return [ from_json(item) for item in json ]
     elif type(json) == dict:
         result = {}
         for prop_name, value in json.items():
-            result[prop_name] = from_json(factories, json[prop_name])
+            result[prop_name] = from_json(json[prop_name])
             return result
     else:
         return json
 
-def to_string(factories: construction.Factories, obj:typing.Any) -> str:
-    return json.dumps(to_json(factories, obj, []))
+def to_string(obj:typing.Any) -> str:
+    return json.dumps(to_json(obj, []))
 
-def from_string(factories: construction.Factories, text: str):
-    return from_json(factories, json.loads(text))
+def from_string(text: str):
+    return from_json(json.loads(text))

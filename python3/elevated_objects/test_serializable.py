@@ -13,12 +13,10 @@ from . import serializable
 from . import json_marshal
 from . import traversal
 
-factories = construction.Factories()
-
 class Property(serializable.Serializable):
     @classmethod
-    def Factory(cls, factories: construction.Factories, class_spec: str = 'test_serializable.Property'):
-        return factories.register(class_spec, lambda: construction.Factory.abstract(class_spec))
+    def Factory(cls, class_spec: str = 'test_serializable.Property'):
+        return construction.factories.register(class_spec, lambda: construction.Factory.abstract(class_spec))
 
 class Primitives(Property):
     prop_int: typing.Union[ int, None ]
@@ -26,13 +24,15 @@ class Primitives(Property):
     prop_string: typing.Union[ str, None ]
 
     @classmethod
-    def Factory(cls, factories: construction.Factories, class_spec: str = 'test_serializable.Primitives'):
-        return factories.register(class_spec, lambda: construction.Factory.derived(class_spec, lambda: cls(), [ Property.Factory(factories) ]))
+    def Factory(cls, class_spec: str = 'test_serializable.Primitives'):
+        return construction.factories.register(class_spec, lambda: construction.Factory.derived(class_spec, lambda: cls(), [ Property.Factory() ]))
 
     def __init__(self):
         self.prop_int = None
         self.prop_float = None
         self.prop_string = None
+
+    def get_class_spec(self): return 'test_serializable.Primitives'
 
     def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
@@ -48,14 +48,16 @@ class Verbatim(Property):
     prop: typing.Union[ int, float, str, None]
 
     @classmethod
-    def Factory(cls, factories: construction.Factories, data_type: typing.Type, class_spec: str = None):
+    def Factory(cls, data_type: typing.Type, class_spec: str = None):
         if class_spec is None:
             class_spec = f"test_serializable.Verbatim.{str(data_type)}"
-        return factories.register(class_spec, lambda: construction.Factory.derived(class_spec, lambda: cls(data_type), [ Property.Factory(factories) ]))
+        return construction.factories.register(class_spec, lambda: construction.Factory.derived(class_spec, lambda: cls(data_type), [ Property.Factory() ]))
 
     def __init__(self, data_type: typing.Type):
         self.data_type = data_type
         self.prop = None
+
+    def get_class_spec(self): return f"test_serializable.Verbatim.{str(self.data_type)}"
 
     def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
@@ -74,19 +76,21 @@ class Scalar(Property):
     prop_map: typing.Union[typing.Dict, None]
 
     @classmethod
-    def Factory(cls, factories: construction.Factories, class_spec: str = 'test_serializable.Scalar'):
-        return factories.register(class_spec, lambda: construction.Factory.derived(class_spec, lambda: cls(), [ Property.Factory(factories) ]))
+    def Factory(cls, class_spec: str = 'test_serializable.Scalar'):
+        return construction.factories.register(class_spec, lambda: construction.Factory.derived(class_spec, lambda: cls(), [ Property.Factory() ]))
 
     def __init__(self):
         self.prop_primitives = None
         self.prop_array = []
         self.prop_map = {}
 
+    def get_class_spec(self): return f"test_serializable.Scalar"
+
     def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
-        visitor.scalar(Primitives.Factory(factories), self, 'prop_primitives')
-        visitor.array(Property.Factory(factories), self, 'prop_array')
-        visitor.map(str, Property.Factory(factories), self, 'prop_map')
+        visitor.scalar(Primitives.Factory(), self, 'prop_primitives')
+        visitor.array(Property.Factory(), self, 'prop_array')
+        visitor.map(str, Property.Factory(), self, 'prop_map')
         visitor.end(self)
 
 class TestPrimitives(unittest.TestCase, serializable.Serializable):
@@ -96,8 +100,8 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
     mutations: typing.List[Primitives]
 
     @classmethod
-    def Factory(cls, factories: construction.Factories, class_spec: str = 'test_serializable.TestPrimitives'):
-        return factories.register(class_spec, lambda: construction.Factory.concrete(class_spec, lambda: cls()))
+    def Factory(cls, class_spec: str = 'test_serializable.TestPrimitives'):
+        return construction.factories.register(class_spec, lambda: construction.Factory.concrete(class_spec, lambda: cls()))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -109,7 +113,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
     def randomize(self):
         self.blank = Primitives()
         last = self.blank
-        mutator = configuration.Mutator(factories)
+        mutator = configuration.Mutator()
         for index in range(self.mutation_count):
             mutator.push_strategy(f"TestPrimitives.{index}")
             st_mutator = configuration.SymbolTableMutator(mutator, {
@@ -121,11 +125,13 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
             self.mutations.append(last)
             mutator.pop_strategy(f"TestPrimitives.{index}")
 
+    def get_class_spec(self): return f"test_serializable.TestPrimitives"
+
     def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
-        visitor.scalar(Primitives.Factory(factories), self, 'blank')
+        visitor.scalar(Primitives.Factory(), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')
-        visitor.array(Primitives.Factory(factories), self, 'mutations')
+        visitor.array(Primitives.Factory(), self, 'mutations')
         visitor.end(self)
 
     def test_mutate_compare(self):
@@ -146,7 +152,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
             self.dirty = False
             with open(self.get_static_pattern_path(), 'rt') as fp:
                 obj = json.load(fp)
-                reader = json_marshal.Reader(factories, self.Factory(factories), obj, {})
+                reader = json_marshal.Reader(self.Factory(), obj, {})
                 self.marshal(reader)
         else:
             self.dirty = True
@@ -155,7 +161,7 @@ class TestPrimitives(unittest.TestCase, serializable.Serializable):
     def tearDown(self):
         if self.dirty:
             with open(self.get_static_pattern_path(), 'wt') as fp:
-                writer = json_marshal.Writer(factories, self.Factory(factories), self, {})
+                writer = json_marshal.Writer(self.Factory(), self, {})
                 writer.write()
                 json.dump(writer.json, fp, indent=2)
 
@@ -167,10 +173,10 @@ class GenericTestVerbatim(serializable.Serializable):
     mutations: typing.List[Verbatim]
 
     @classmethod
-    def Factory(cls, factories: construction.Factories, data_type: typing.Type, class_spec: str = None):
+    def Factory(cls, data_type: typing.Type, class_spec: str = None):
         if class_spec is None:
             class_spec = f"test_serializable.GenericTestVerbatim.{str(data_type)}"
-        return factories.register(class_spec, lambda: construction.Factory.concrete(class_spec, lambda: cls(data_type)))
+        return construction.factories.register(class_spec, lambda: construction.Factory.concrete(class_spec, lambda: cls(data_type)))
 
     def __init__(self, data_type: typing.Type):
         self.data_type = data_type
@@ -182,7 +188,7 @@ class GenericTestVerbatim(serializable.Serializable):
     def randomize(self):
         self.blank = Verbatim(self.data_type)
         last = self.blank
-        mutator = configuration.Mutator(factories)
+        mutator = configuration.Mutator()
         for index in range(self.mutation_count):
             st_mutator = configuration.SymbolTableMutator(mutator, {
                 'a': last
@@ -191,11 +197,13 @@ class GenericTestVerbatim(serializable.Serializable):
             last = typing.cast(Verbatim, st_mutator.after['a'])
             self.mutations.append(last)
 
+    def get_class_spec(self): return f"test_serializable.GenericTestVerbatim.{str(self.data_type)}"
+
     def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
-        visitor.scalar(Verbatim.Factory(factories, self.data_type), self, 'blank')
+        visitor.scalar(Verbatim.Factory(self.data_type), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')
-        visitor.array(Verbatim.Factory(factories, self.data_type), self, 'mutations')
+        visitor.array(Verbatim.Factory(self.data_type), self, 'mutations')
         visitor.end(self)
 
     def test_mutate_compare(self, test_case: unittest.TestCase, static_pattern_path: str):
@@ -213,7 +221,7 @@ class GenericTestVerbatim(serializable.Serializable):
             self.dirty = False
             with open(static_pattern_path, 'rt') as fp:
                 obj = json.load(fp)
-                reader = json_marshal.Reader(factories, self.Factory(factories, self.data_type), obj, {})
+                reader = json_marshal.Reader(self.Factory(construction.factories, self.data_type), obj, {})
                 self.marshal(reader)
         else:
             self.dirty = True
@@ -222,7 +230,7 @@ class GenericTestVerbatim(serializable.Serializable):
     def tearDown(self, static_pattern_path: str):
         if self.dirty:
             with open(static_pattern_path, 'wt') as fp:
-                writer = json_marshal.Writer(factories, self.Factory(factories, self.data_type), self, {})
+                writer = json_marshal.Writer(self.Factory(construction.factories, self.data_type), self, {})
                 writer.write()
                 json.dump(writer.json, fp, indent=2)
 
@@ -257,8 +265,8 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
     mutations: typing.List[Scalar]
 
     @classmethod
-    def Factory(cls, factories: construction.Factories, class_spec: str = 'test_serializable.TestScalar'):
-        return factories.register(class_spec, lambda: construction.Factory.concrete(class_spec, lambda: cls()))
+    def Factory(cls, class_spec: str = 'test_serializable.TestScalar'):
+        return construction.factories.register(class_spec, lambda: construction.Factory.concrete(class_spec, lambda: cls()))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -270,7 +278,7 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
     def randomize(self):
         self.blank = Scalar()
         last = self.blank
-        mutator = configuration.Mutator(factories)
+        mutator = configuration.Mutator()
         for index in range(self.mutation_count):
             st_mutator = configuration.SymbolTableMutator(mutator, {
                 'a': last
@@ -279,11 +287,13 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
             last = typing.cast(Scalar, st_mutator.after['a'])
             self.mutations.append(last)
 
+    def get_class_spec(self): return f"test_serializable.TestScalar"
+
     def marshal(self, visitor: traversal.Visitor):
         visitor.begin(self)
-        visitor.scalar(Scalar.Factory(factories), self, 'blank')
+        visitor.scalar(Scalar.Factory(), self, 'blank')
         visitor.primitive(int, self, 'mutation_count')
-        visitor.array(Scalar.Factory(factories), self, 'mutations')
+        visitor.array(Scalar.Factory(), self, 'mutations')
         visitor.end(self)
 
     def test_mutate_compare(self):
@@ -304,10 +314,10 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
             self.dirty = False
             with open(self.get_static_pattern_path(), 'rt') as fp:
                 obj = json.load(fp)
-                reader = json_marshal.Reader(factories, self.Factory(factories), obj, {})
+                reader = json_marshal.Reader(self.Factory(), obj, {})
                 self.marshal(reader)
             # with open(self.get_static_pattern_path()+".output", 'wt') as fp:
-            #     writer = json_marshal.Writer(self.Factory(factories), self, {})
+            #     writer = json_marshal.Writer(self.Factory(), self, {})
             #     self.marshal(writer)
             #     json.dump(writer.json, fp, indent=2)
 
@@ -318,20 +328,21 @@ class TestScalar(unittest.TestCase, serializable.Serializable):
     def tearDown(self):
         if self.dirty:
             with open(self.get_static_pattern_path(), 'wt') as fp:
-                writer = json_marshal.Writer(factories, self.Factory(factories), self, {})
+                writer = json_marshal.Writer( self.Factory(), self, {})
                 writer.write()
                 json.dump(writer.json, fp, indent=2)
 
-Verbatim.Factory(factories, int)
-Verbatim.Factory(factories, float)
-Verbatim.Factory(factories, str)
-Primitives.Factory(factories)
-Scalar.Factory(factories)
-TestPrimitives.Factory(factories)
-GenericTestVerbatim.Factory(factories, int)
-GenericTestVerbatim.Factory(factories, float)
-GenericTestVerbatim.Factory(factories, str)
-TestScalar.Factory(factories)
+Property.Factory()
+Verbatim.Factory(int)
+Verbatim.Factory(float)
+Verbatim.Factory(str)
+Primitives.Factory()
+Scalar.Factory()
+TestPrimitives.Factory()
+GenericTestVerbatim.Factory(int)
+GenericTestVerbatim.Factory(float)
+GenericTestVerbatim.Factory(str)
+TestScalar.Factory()
 
 if __name__ == '__main__':
     unittest.main()

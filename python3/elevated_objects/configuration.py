@@ -719,14 +719,10 @@ class Ancestor:
         self.mutator.ancestors.remove(self.target)
 
 class Mutator:
-    factories: construction.Factories
     pool: multidict.MultiDict[serializable.Serializable]
     ancestors: typing.Set[serializable.Serializable]
 
-    def __init__(self, 
-        factories: construction.Factories
-    ):
-        self.factories = factories
+    def __init__(self):
         self.pool = multidict.MultiDict()
         self.ancestors = set()
 
@@ -751,7 +747,7 @@ class Mutator:
         return Ancestor(self, random.choice(self.get_candidates(class_spec)))
 
     def modify(self, before: serializable.Serializable) -> Ancestor:
-        factory = before.__class__.Factory(self.factories)
+        factory = before.__class__.Factory()
         after = factory.make()
         self.pool.add(factory.get_class_spec(), after)
         after.marshal(construction.Initializer(factory, before))

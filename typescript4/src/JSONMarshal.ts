@@ -1,9 +1,8 @@
 import { Serializable } from './serialization';
-import { Factories, Factory } from './construction';
+import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
 
 export class Reader<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
-    factories: Factories;
     factory: Factory<ExpectedType>;
     json: any;
     obj: ExpectedType|undefined;
@@ -12,19 +11,15 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
 
     // Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
     constructor(
-        factories: Factories,
         factory: Factory<ExpectedType>, 
         json: any, 
         refs?: { [key:string]: { [key:string]: any } }
     ) {
-        this.factories = factories;
         this.factory = factory;
         this.json = json;
         this.refs = refs ? refs : {};
         this.is_ref = false;
     }
-
-    getFactories(): Factories { return this.factories; }
 
     jsonPreview(): string {
         return(JSON.stringify(this.json).substr(0,80));
@@ -94,7 +89,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
             if(item === null) {
                 target[propName] = null;
             } else {
-                const reader = new Reader<ElementType>(this.factories, elementFactory, item, this.refs);
+                const reader = new Reader<ElementType>(elementFactory, item, this.refs);
                 reader.read();
                 if(reader.obj) {
                     target[propName] = reader.obj;
@@ -119,7 +114,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
                 if(item === null) {
                     return null;
                 } else {
-                    const reader = new Reader<ElementType>(this.factories, elementFactory, item, this.refs);
+                    const reader = new Reader<ElementType>(elementFactory, item, this.refs);
                     reader.read();
                     return(reader.obj);
                 }
@@ -145,7 +140,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
                 if(item === null) {
                     return { ... newValue, [key]: null};
                 } else {
-                    const reader = new Reader<ElementType>(this.factories, elementFactory, item, this.refs);
+                    const reader = new Reader<ElementType>(elementFactory, item, this.refs);
                     reader.read();
                     return { ... newValue, [key]: reader.obj};
                 }
@@ -170,7 +165,6 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
 }
 
 export class Writer<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
-    factories: Factories;
     factory: Factory<ExpectedType>;
     obj:ExpectedType;
     json: any;
@@ -179,18 +173,14 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
 
     // Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
     constructor(
-        factories: Factories,
         factory: Factory<ExpectedType>, 
         obj: ExpectedType, 
         refs?: { [key:string]: object[] }
     ) {
-        this.factories = factories;
         this.factory = factory;
         this.obj = obj;
         this.refs = refs ? refs : {};
     }
-
-    getFactories(): Factories { return this.factories; }
 
     begin(obj: ExpectedType) {
         // Must be called at the start of any marshal method. Tells this object that we are visiting the body of that object next"""
@@ -252,7 +242,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
             if(target[propName] === null) {
                 this.json[propName] = null;
             } else {
-                const writer = new Writer<ElementType>(this.factories, elementFactory, target[propName], this.refs);
+                const writer = new Writer<ElementType>(elementFactory, target[propName], this.refs);
                 writer.write();
                 this.json[propName] = writer.json;
             }
@@ -274,7 +264,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
                 if(item === null) {
                     return null;
                 } else {
-                    const writer = new Writer<ElementType>(this.factories, elementFactory, item, this.refs);
+                    const writer = new Writer<ElementType>(elementFactory, item, this.refs);
                     writer.write();
                     return writer.json;
                 }
@@ -297,7 +287,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
                 if(item === null) {
                     return { ... newValue, [propName]: null };
                 } else {
-                    const writer = new Writer<ElementType>(this.factories, elementFactory, item, this.refs);
+                    const writer = new Writer<ElementType>(elementFactory, item, this.refs);
                     writer.write();
                     return { ... newValue, [propName]: writer.json };
                 }
@@ -317,18 +307,18 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     }
 }
 
-export function toJSON(factories: Factories, obj: any, path?: any[]): any {
+export function toJSON(obj: any, path?: any[]): any {
     const usePath = path || [];
     if(obj instanceof Serializable) {
-        const writer = new Writer<any>(factories, obj.__factory__, {});
+        const writer = new Writer<any>(obj.__factory__, {});
         writer.write();
         return writer.json;
     } else if(Array.isArray(obj)) {
-        const result = obj.map((item: any, index: number) => toJSON(factories, item, [ ...usePath, index]));
+        const result = obj.map((item: any, index: number) => toJSON(item, [ ...usePath, index]));
         return result;
     } else if(obj === Object(obj)) {
         const result = Object.getOwnPropertyNames(obj).reduce((result: any, propName: string) => {
-            result[propName] = toJSON(factories, obj[propName], [ ...usePath, propName]);
+            result[propName] = toJSON(obj[propName], [ ...usePath, propName]);
             return result;
         }, {});
         return result;
@@ -337,16 +327,16 @@ export function toJSON(factories: Factories, obj: any, path?: any[]): any {
     }
 }
 
-export function fromJSON(factories: Factories, json: any): any {
+export function fromJSON(json: any): any {
     if(json && json.hasOwnProperty('__class__') && factories.hasClass(json['__class__'])) {
-        const reader = new Reader<any>(factories, factories.getFactory(json['__class__']), json, {}); 
+        const reader = new Reader<any>(factories.getFactory(json['__class__']), json, {}); 
         reader.read();
         return reader.obj;
     } else if(Array.isArray(json)) {
-        return json.map((item: any) => fromJSON(factories, item));
+        return json.map((item: any) => fromJSON(item));
     } else if(json === Object(json)) {
         return Object.getOwnPropertyNames(json).reduce((result: any, propName: string) => {
-            result[propName] = fromJSON(factories, json[propName]);
+            result[propName] = fromJSON(json[propName]);
             return result;
         }, {});
     } else {
@@ -354,10 +344,10 @@ export function fromJSON(factories: Factories, json: any): any {
     }
 }
 
-export function toString(factories: Factories, obj: any): string {
-    return JSON.stringify(toJSON(factories, obj, []));
+export function toString(obj: any): string {
+    return JSON.stringify(toJSON(obj, []));
 }
 
-export function fromString(factories: Factories, text: string) {
-    return fromJSON(factories, JSON.parse(text));
+export function fromString(text: string) {
+    return fromJSON(JSON.parse(text));
 }
