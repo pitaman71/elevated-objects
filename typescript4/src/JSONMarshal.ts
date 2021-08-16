@@ -1,6 +1,9 @@
 import { Serializable } from './serialization';
 import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
+import * as CodeInstruments from 'code-instruments';
+
+export var logEnable = () => false;
 
 export class Reader<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
     factory: Factory<ExpectedType>;
@@ -52,115 +55,126 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     owner(target: ExpectedType, ownerPropName: string): void {}
 
     verbatim<DataType>(
-        target: Serializable, 
         getValue: (target: Serializable) => any,
-        setValue: (target: Serializable, value: any) => void,
-        getPropNames: () => Array<string>                
+        setValue: (target: Serializable, value: any) => void
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        setValue(target, this.json);
+        new CodeInstruments.Task.Task('JSONMarshal.Reader.verbatim').logs(console.log, logEnable).returns({}, () => {
+            if(this.obj)
+            setValue(this.obj, this.json);
+        });
     }    
 
     primitive<PropType>(target: any, propName: string, fromString?: (initializer:string) => PropType): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        if(this.json === undefined) {
-            throw new Error('No JSON here');
-        } else if(this.json.hasOwnProperty(propName)) {
-            const newValue = (typeof(this.json[propName]) === 'string')  && fromString ? fromString(this.json[propName]) : this.json[propName];
-            target[propName] = newValue;
-        }
+        new CodeInstruments.Task.Task(`JSONMarshal.Reader.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            if(this.json === undefined) {
+                throw new Error('No JSON here');
+            } else if(this.json.hasOwnProperty(propName)) {
+                const newValue = (typeof(this.json[propName]) === 'string')  && fromString ? fromString(this.json[propName]) : this.json[propName];
+                target[propName] = newValue;
+            }
+        });
     }    
 
     scalar<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
-        if(this.json === undefined) {
-            target[propName] = undefined;
-        } else if(this.json.hasOwnProperty(propName)) {            
-            const item = this.json[propName];
-            if(item === null) {
-                target[propName] = null;
-            } else {
-                const reader = new Reader<ElementType>(elementFactory, item, this.refs);
-                reader.read();
-                if(reader.obj) {
-                    target[propName] = reader.obj;
+        new CodeInstruments.Task.Task(`JSONMarshal.Reader.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            const target = <any>this.obj;
+            if(this.json === undefined) {
+                target[propName] = undefined;
+            } else if(this.json.hasOwnProperty(propName)) {            
+                const item = this.json[propName];
+                if(item === null) {
+                    target[propName] = null;
+                } else {
+                    const reader = new Reader<ElementType>(elementFactory, item, this.refs);
+                    reader.read();
+                    if(reader.obj) {
+                        target[propName] = reader.obj;
+                    }
                 }
             }
-        }
+        });
     }
 
     array<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        if(this.json === undefined) {
-            throw new Error('No JSON here');
-        } else if(this.json.hasOwnProperty(propName)) {     
-            const propValue = this.json[propName];            
-            const newValue = propValue.map((item: any) => {
-                if(item === null) {
-                    return null;
-                } else {
-                    const reader = new Reader<ElementType>(elementFactory, item, this.refs);
-                    reader.read();
-                    return(reader.obj);
-                }
-            }).filter((item: ElementType|undefined): item is ElementType => !!item);
-            target[propName] = newValue;
-        }
+        new CodeInstruments.Task.Task(`JSONMarshal.Reader.array(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            const target = <any>this.obj;
+            if(this.json === undefined) {
+                throw new Error('No JSON here');
+            } else if(this.json.hasOwnProperty(propName)) {     
+                const propValue = this.json[propName];            
+                const newValue = propValue.map((item: any) => {
+                    if(item === null) {
+                        return null;
+                    } else {
+                        const reader = new Reader<ElementType>(elementFactory, item, this.refs);
+                        reader.read();
+                        return(reader.obj);
+                    }
+                }).filter((item: ElementType|undefined): item is ElementType => !!item);
+                target[propName] = newValue;
+            }
+        });
     }
 
     map<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        if(this.json === undefined) {
-            throw new Error('No JSON here');
-        } else if(this.json.hasOwnProperty(propName)) {     
-            const propValue = this.json[propName];            
-            const newValue = Object.getOwnPropertyNames(propValue).reduce((newValue: any, key: string) => {
-                const item = propValue[key];
-                if(item === null) {
-                    return { ... newValue, [key]: null};
-                } else {
-                    const reader = new Reader<ElementType>(elementFactory, item, this.refs);
-                    reader.read();
-                    return { ... newValue, [key]: reader.obj};
-                }
-            }, {});
-            target[propName] = newValue;
-        }
+        new CodeInstruments.Task.Task(`JSONMarshal.Reader.map(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            const target = <any>this.obj;
+            if(this.json === undefined) {
+                throw new Error('No JSON here');
+            } else if(this.json.hasOwnProperty(propName)) {     
+                const propValue = this.json[propName];            
+                const newValue = Object.getOwnPropertyNames(propValue).reduce((newValue: any, key: string) => {
+                    const item = propValue[key];
+                    if(item === null) {
+                        return { ... newValue, [key]: null};
+                    } else {
+                        const reader = new Reader<ElementType>(elementFactory, item, this.refs);
+                        reader.read();
+                        return { ... newValue, [key]: reader.obj};
+                    }
+                }, {});
+                target[propName] = newValue;
+            }
+        });
     }
 
     read(): any {
-        const classSpec = 
-            this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : this.factory.getClassSpec();
+        return new CodeInstruments.Task.Task(`JSONMarshal.Reader.read`).logs(console.log, logEnable).returns({}, () => {
+            const classSpec = 
+                this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : this.factory.getClassSpec();
 
-        if(this.json === undefined) {
-            this.obj = undefined;
-        } else {
-            const newObject = this.factory.make();
-            newObject.marshal(this);
-            this.obj = <ExpectedType>newObject;
-            return newObject;
-        }
+            if(this.json === undefined) {
+                this.obj = undefined;
+            } else {
+                const newObject = this.factory.make();
+                newObject.marshal(this);
+                this.obj = <ExpectedType>newObject;
+                return newObject;
+            }
+        });
     }
 }
 
@@ -215,106 +229,117 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     owner(target: ExpectedType, ownerPropName: string): void {}
 
     verbatim<DataType>(
-        target: any, 
         getValue: (target: Serializable) => any,
-        setValue: (target: Serializable, value: any) => void,
-        getPropNames: () => Array<string>                
+        setValue: (target: Serializable, value: any) => void
     ): void {
-        this.json = getValue(target);
+        new CodeInstruments.Task.Task(`JSONMarshal.Writer.verbatim`).logs(console.log, logEnable).returns({}, () => {
+            this.json = getValue(this.obj);
+        });
     }
 
     primitive<PropType>(target: any, propName: string, fromString?: (initializer:string) => PropType): void {
-        if(target[propName] !== undefined && !this.is_ref) {
-            this.json[propName] = target[propName];
-        }
+        new CodeInstruments.Task.Task(`JSONMarshal.Writer.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            if(target[propName] !== undefined && !this.is_ref) {
+                this.json[propName] = target[propName];
+            }
+        });
     }
 
     scalar<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        if(this.is_ref) return;
-        if(target.hasOwnPropertyName(propName)) {
-            if(target[propName] === null) {
-                this.json[propName] = null;
-            } else {
-                const writer = new Writer<ElementType>(elementFactory, target[propName], this.refs);
-                writer.write();
-                this.json[propName] = writer.json;
+        new CodeInstruments.Task.Task(`JSONMarshal.Writer.scalar(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            if(this.is_ref) return;
+            const target = <any>this.obj;
+            if(target.hasOwnProperty(propName)) {
+                if(target[propName] === null) {
+                    this.json[propName] = null;
+                } else {
+                    const writer = new Writer<ElementType>(elementFactory, target[propName], this.refs);
+                    writer.write();
+                    this.json[propName] = writer.json;
+                }
             }
-        }
+        });
     }
 
     array<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        if(this.is_ref) return;
-
-        if(target.hasOwnPropertyName(propName)) {
-            this.json[propName] = target[propName].map((item: ElementType) => {
-                if(item === null) {
-                    return null;
-                } else {
-                    const writer = new Writer<ElementType>(elementFactory, item, this.refs);
-                    writer.write();
-                    return writer.json;
-                }
-            }).filter((json:any) => !!json);
-        }
+        new CodeInstruments.Task.Task(`JSONMarshal.Writer.array(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            if(this.is_ref) return;
+            const target = <any>this.obj;
+            if(target.hasOwnProperty(propName)) {
+                this.json[propName] = target[propName].map((item: ElementType) => {
+                    if(item === null) {
+                        return null;
+                    } else {
+                        const writer = new Writer<ElementType>(elementFactory, item, this.refs);
+                        writer.write();
+                        return writer.json;
+                    }
+                }).filter((json:any) => !!json);
+            }
+        });
     }
 
     map<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         // For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        if(this.is_ref) return;
-
-        if(target.hasOwnPropertyName(propName)) {
-            this.json[propName] = target[propName].reduce((newValue: any, item: ElementType) => {
-                if(item === null) {
-                    return { ... newValue, [propName]: null };
-                } else {
-                    const writer = new Writer<ElementType>(elementFactory, item, this.refs);
-                    writer.write();
-                    return { ... newValue, [propName]: writer.json };
-                }
-            }, {});
-        }
+        new CodeInstruments.Task.Task(`JSONMarshal.Writer.map(${propName})`).logs(console.log, logEnable).returns({}, () => {
+            if(this.is_ref) return;
+            const target = <any>this.obj;
+            if(target.hasOwnProperty(propName)) {
+                this.json[propName] = target[propName].reduce((newValue: any, item: ElementType) => {
+                    if(item === null) {
+                        return { ... newValue, [propName]: null };
+                    } else {
+                        const writer = new Writer<ElementType>(elementFactory, item, this.refs);
+                        writer.write();
+                        return { ... newValue, [propName]: writer.json };
+                    }
+                }, {});
+            }
+        });
     }
 
     write(): any {
-        if(!!this.json) {
-            // pass
-        } else if(this.obj instanceof Serializable) {
-            this.obj.marshal(this);
-        } else {
-            this.json = this.obj;
-        }
-        return this.json;
+        return new CodeInstruments.Task.Task(`JSONMarshal.Writer.write`).logs(console.log, logEnable).returns({ obj: this.obj?.toString() }, () => {
+            if(!!this.json) {
+                // pass
+            } else if(this.obj instanceof Serializable) {
+                this.obj.marshal(this);
+            } else {
+                this.json = this.obj;
+            }
+            return this.json;
+        });
     }
 }
 
 export function toJSON(obj: any, path?: any[]): any {
     const usePath = path || [];
     if(obj instanceof Serializable) {
-        const writer = new Writer<any>(obj.__factory__, {});
+        const writer = new Writer<any>(obj.getFactory(), obj);
         writer.write();
         return writer.json;
     } else if(Array.isArray(obj)) {
         const result = obj.map((item: any, index: number) => toJSON(item, [ ...usePath, index]));
+        return result;
+    } else if(obj instanceof Set) {
+        const result = Array.from(obj).map((item: any, index: number) => toJSON(item, [ ...usePath, index]));
         return result;
     } else if(obj === Object(obj)) {
         const result = Object.getOwnPropertyNames(obj).reduce((result: any, propName: string) => {

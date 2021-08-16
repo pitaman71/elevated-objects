@@ -33,10 +33,8 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
     }
 
     verbatim<DataType>(
-        target: any, 
         getValue: (target: ExpectedType) => any,
-        setValue: (target: ExpectedType, value: any) => void,
-        getPropNames: () => Array<string>        
+        setValue: (target: ExpectedType, value: any) => void
     ): Result {
         if(this.result !== Result.Equal) {
             return this.result;
@@ -112,7 +110,6 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
 
     scalar<ElementType extends serialization.Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string
     ): Result {
         if(this.result !== Result.Equal) {
@@ -148,7 +145,6 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
 
     array<ElementType extends serialization.Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string
     ): Result {
         const aHasProp = this.a.hasOwnProperty(propName);
@@ -180,7 +176,6 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
 
     map<ElementType extends serialization.Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string
     ): Result {
         const aHasProp = this.a.hasOwnProperty(propName);

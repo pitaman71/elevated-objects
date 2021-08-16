@@ -27,16 +27,14 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     verbatim<DataType>(
-        target: Serializable, 
-        getValue: (target: Serializable) => any,
-        setValue: (target: Serializable, value: any) => void,
-        getPropNames: () => Array<string>
+        getValue: (target: ExpectedType) => any,
+        setValue: (target: ExpectedType, value: any) => void
     ): void {
         const newValue = this.initializers.reduce(
             (result: any, initializer: any) => initializer || result
         , undefined);
-        if(newValue !== undefined)
-            setValue(target, newValue);
+        if(this.obj && newValue !== undefined)
+            setValue(this.obj, newValue);
     }
 
     primitive<PropType>(target: any, propName: string, fromString?: (initializer:string) => PropType): void {
@@ -51,22 +49,26 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
 
     scalar<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         const newValues = this.initializers.filter(
             (initializer: any) => initializer[propName] !== undefined
         ).map((initializer: any) => initializer[propName]);
         if(newValues.length == 1) {
-            target[propName] = newValues[0];
+            if(this.obj) {
+                const tmp = <any>this.obj;
+                tmp[propName] = newValues[0];
+            }
         } else if(newValues.length > 1) {
-            target[propName] = this.clone(... newValues);
+            if(this.obj) {
+                const tmp = <any>this.obj;
+                tmp[propName] = this.clone(... newValues);
+            }
         }
     }
 
     array<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         const hasProperty = this.initializers.filter(
@@ -93,13 +95,15 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
                         : [ ... arrayValue, this.clone(... elementValues) ];
                 }
             , []);
-            target[propName] = newArrayValue;
+            if(this.obj) {
+                const tmp = <any>this.obj;
+                tmp[propName] = newArrayValue;
+            }
         }
     }
 
     map<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
-        target: any, 
         propName: string        
     ): void {
         const hasProperty = this.initializers.filter(
@@ -185,7 +189,7 @@ export class Factory<ExpectedType extends Serializable> {
             throw new Error(`Object of type ${classSpec}is not compatible with ${Object.getOwnPropertyNames(this.allocators)}`);
         }
         const result = this.allocators[classSpec](this);
-        result.__factory__ = this;
+        result.getFactory = () => this;
         return result
     }
 }
@@ -203,6 +207,10 @@ export class Factories {
         }
         const factory: any = this.specToBuilder[classSpec];
         return factory;
+    }
+
+    concrete<ExpectedType extends Serializable>(classSpec: string, objectMaker: () => ExpectedType): Factory<ExpectedType> {
+        return this.register(classSpec, () => Factory.concrete<Serializable>(classSpec, objectMaker));
     }
 
     hasClass(classSpec?: string): boolean {
