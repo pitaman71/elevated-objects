@@ -1,4 +1,3 @@
-import { throws } from 'node:assert';
 import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
@@ -223,6 +222,18 @@ export class Factories {
 
     make(classSpec: string): Serializable {
         return this.specToBuilder[classSpec.toString()].make();
+    }
+
+    makeObjectId(): string {
+        const length = 16;
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const charactersLength = characters.length;
+        let result = '';
+        for ( let i = 0; i < length; i++ ) {
+            result += characters.charAt(Math.floor(Math.random() * 
+     charactersLength));
+        }
+        return result;
     }
 }
 

@@ -9,14 +9,14 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     factory: Factory<ExpectedType>;
     json: any;
     obj: ExpectedType|undefined;
-    refs: { [key:string]: { [key:string]: any } };
+    refs: { [className:string]: { [objectId:string]: Serializable } };
     is_ref: boolean;
 
     // Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
     constructor(
         factory: Factory<ExpectedType>, 
         json: any, 
-        refs?: { [key:string]: { [key:string]: any } }
+        refs?: { [key:string]: { [key:string]: Serializable } }
     ) {
         this.factory = factory;
         this.json = json;
@@ -182,14 +182,14 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     factory: Factory<ExpectedType>;
     obj:ExpectedType;
     json: any;
-    refs: { [key:string]: any[] };
+    refs: { [className: string]: { [objectId: string] : Serializable} };
     is_ref?: boolean;
 
     // Reads in-memory representation from semi-self-describing JSON by introspecting objects using their marshal method
     constructor(
         factory: Factory<ExpectedType>, 
         obj: ExpectedType, 
-        refs?: { [key:string]: object[] }
+        refs?: { [className: string]: { [objectId: string] : Serializable} }
     ) {
         this.factory = factory;
         this.obj = obj;
@@ -202,7 +202,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         
         const classSpec = this.factory.getClassSpec();
         if(!this.refs.hasOwnProperty(classSpec)) {
-            this.refs[classSpec] = [];
+            this.refs[classSpec] = {};
         }
         this.json['__class__'] = classSpec;
         if(!classSpec) {
@@ -210,16 +210,11 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         }
         let object_id = obj.getGlobalId();
         if(object_id !== null) {
-            this.is_ref = this.refs[classSpec].includes(object_id);
-        } else if(this.refs[classSpec].includes(obj)) {
-            this.is_ref = true;
-            object_id = this.refs[classSpec].indexOf(obj);
+            this.is_ref = this.refs[classSpec].hasOwnProperty(object_id);
+            this.json['__id__'] = object_id;
         } else {
             this.is_ref = false;
-            object_id = this.refs[classSpec].length;
-            this.refs[classSpec].push(obj);
         }
-        this.json['__id__'] = object_id;
         this.json['__is_ref__'] = this.is_ref;
     }
 
@@ -233,7 +228,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         setValue: (target: Serializable, value: any) => void
     ): void {
         new CodeInstruments.Task.Task(`JSONMarshal.Writer.verbatim`).logs(console.log, logEnable).returns({}, () => {
-            this.json = getValue(this.obj);
+            this.json = { ... this.json || {}, ... getValue(this.obj) };
         });
     }
 
