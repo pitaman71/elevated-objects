@@ -1,4 +1,4 @@
-import { Serializable } from './serialization';
+import { Serializable, Reference } from './serialization';
 import { Visitor } from './traversal';
 
 export class Initializer<ExpectedType extends Serializable> implements Visitor<ExpectedType> {
@@ -43,6 +43,19 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
         if(newValue !== undefined) {
             const typedValue = (typeof(newValue) === 'string')  && fromString ? fromString(newValue) : newValue;
             target[propName] = typedValue;
+        }
+    }
+
+    reference<ElementType extends Serializable>(
+        elementFactory: Factory<ElementType>,
+        propName: string
+    ): void {
+        const newValue = this.initializers.reduce(
+            (result: any, initializer: any) => initializer[propName] || result
+        , undefined);
+        if(newValue !== undefined) {
+            const target:any = this.obj;
+            target[propName] = Reference.from(newValue);
         }
     }
 

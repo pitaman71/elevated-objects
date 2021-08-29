@@ -87,6 +87,38 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
         return this.result;
     }
 
+    reference<ElementType extends serialization.Serializable>(
+        elementFactory: Factory<ElementType>,
+        propName: string
+    ): Result {
+        if(this.result !== Result.Equal) {
+            return this.result;
+        }
+
+        const aHasProp = this.a.hasOwnProperty(propName);
+        const bHasProp = this.b.hasOwnProperty(propName);
+        if(!aHasProp && !bHasProp) {
+            return this.result;
+        } else if(!aHasProp && bHasProp) {
+            this.result = Result.Less;
+        } else if(aHasProp && !bHasProp) {
+            this.result = Result.Greater;
+        }
+
+        const aProp = this.a[propName];
+        const bProp = this.b[propName];
+        if(aProp._ref < bProp._ref) {
+            this.result = Result.Less;
+        } else if(aProp._ref > bProp._ref) {
+            this.result = Result.Greater;
+        } else if(aProp._def < bProp._def) {
+            this.result = Result.Less;
+        } else if(aProp._def > bProp._def) {
+            this.result = Result.Greater;
+        }
+        return this.result;
+    }
+
     compare_elements<ElementType extends serialization.Serializable>(
         a_prop: serialization.Serializable,
         b_prop: serialization.Serializable

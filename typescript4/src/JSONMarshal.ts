@@ -1,4 +1,4 @@
-import { Serializable } from './serialization';
+import { Serializable, Reference } from './serialization';
 import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
 import * as CodeInstruments from 'code-instruments';
@@ -80,6 +80,14 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
             }
         });
     }    
+
+    reference<ElementType extends Serializable>(
+        elementFactory: Factory<ElementType>,
+        propName: string
+    ): void {
+        const target = <any>this.obj;
+        target[propName] = Reference.from(this.json[propName]);
+    }
 
     scalar<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
@@ -238,6 +246,14 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
                 this.json[propName] = target[propName];
             }
         });
+    }
+
+    reference<ElementType extends Serializable>(
+        elementFactory: Factory<ElementType>,
+        propName: string
+    ): void {
+        const target = <any>this.obj;
+        this.json[propName] = target[propName]._ref;
     }
 
     scalar<ElementType extends Serializable>(

@@ -14,6 +14,10 @@ export abstract class Visitor<ExpectedType extends Serializable> {
         target: any, 
         propName: string, 
         fromString?: (initializer:string) => PropType): void;
+    abstract reference<ElementType extends Serializable>(
+        elementFactory: Factory<ElementType>,
+        propName: string
+    ): void;
     abstract scalar<ElementType extends Serializable>(
         elementFactory: Factory<ElementType>,
         propName: string
