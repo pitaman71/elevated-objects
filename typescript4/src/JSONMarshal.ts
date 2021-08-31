@@ -1,4 +1,5 @@
-import { Serializable, Reference } from './serialization';
+import { Serializable } from './serialization';
+import { Reference } from './references';
 import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
 import * as CodeInstruments from 'code-instruments';
