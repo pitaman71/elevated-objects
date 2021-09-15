@@ -61,7 +61,7 @@ export class Reference<ValueType extends Serializable> extends Serializable {
         return result;
     }
 
-    static from<ValueType extends Serializable>(obj: string|number|null|undefined|ValueType|Reference<ValueType>) {        
+    static from<ValueType extends Serializable>(obj: string|number|null|ValueType|Reference<ValueType>) {        
         const result = new Reference<ValueType>();
         if(obj === undefined) {
             throw new Error('undefined passsed to Reference.from')
