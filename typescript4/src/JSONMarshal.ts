@@ -87,7 +87,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         propName: string
     ): void {
         const target = <any>this.obj;
-        target[propName] = Reference.from(this.json[propName] || null);
+        target[propName] = fromJSON(this.json[propName] || null);
     }
 
     scalar<ElementType extends Serializable>(
@@ -254,7 +254,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         propName: string
     ): void {
         const target = <any>this.obj;
-        this.json[propName] = target[propName]._ref;
+        this.json[propName] = toJSON(target[propName]);
     }
 
     scalar<ElementType extends Serializable>(

@@ -17,10 +17,10 @@ export class Reference<ValueType extends Serializable> extends Serializable {
         visitor.begin(this);
         visitor.verbatim(
             (target) => {
-                return (<this>target)._ref;
+                return { __id__: (<this>target)._ref };
             },
             (target, value) => {
-                (<this>target)._ref = value;
+                (<this>target)._ref = value.__id__;
             }
         )
         visitor.end(this);
