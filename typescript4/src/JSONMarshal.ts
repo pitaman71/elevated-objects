@@ -2,6 +2,7 @@ import { Serializable } from './serialization';
 import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
 import * as CodeInstruments from 'code-instruments';
+import { Reference } from './references';
 
 export var logEnable = () => false;
 
@@ -55,6 +56,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     owner(target: ExpectedType, ownerPropName: string): void {}
 
     verbatim<DataType>(
+        target: Serializable,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void
     ): void {
@@ -62,8 +64,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
         new CodeInstruments.Task.Task('JSONMarshal.Reader.verbatim').logs(console.log, logEnable).returns({}, () => {
-            if(this.obj)
-            setValue(this.obj, this.json);
+            setValue(target, this.json);
         });
     }    
 
@@ -86,7 +87,8 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         propName: string
     ): void {
         const target = <any>this.obj;
-        target[propName] = fromJSON(this.json[propName] || null);
+        const reader = new Reader<Reference<ElementType>>(Reference.Factory, this.json[propName]);        
+        target[propName] = reader.read();
     }
 
     scalar<ElementType extends Serializable>(
@@ -232,11 +234,12 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     owner(target: ExpectedType, ownerPropName: string): void {}
 
     verbatim<DataType>(
+        target: Serializable,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void
     ): void {
         new CodeInstruments.Task.Task(`JSONMarshal.Writer.verbatim`).logs(console.log, logEnable).returns({}, () => {
-            this.json = { ... this.json || {}, ... getValue(this.obj) };
+            this.json = getValue(target);
         });
     }
 
@@ -253,7 +256,8 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         propName: string
     ): void {
         const target = <any>this.obj;
-        this.json[propName] = toJSON(target[propName]);
+        const writer = new Writer<Reference<ElementType>>(Reference.Factory, target[propName]);
+        this.json[propName] = writer.write();
     }
 
     scalar<ElementType extends Serializable>(
@@ -329,10 +333,12 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     write(): any {
         return new CodeInstruments.Task.Task(`JSONMarshal.Writer.write`).logs(console.log, logEnable).returns({ obj: this.obj?.toString() }, () => {
             if(!!this.json) {
-                // pass
+                // !! should probably be an error
             } else if(this.obj instanceof Serializable) {
                 this.obj.marshal(this);
             } else {
+                // handles this.obj === undefined, equivalent json is also undefined
+                // handles this.obj === null, equivalent json is null
                 this.json = this.obj;
             }
             return this.json;

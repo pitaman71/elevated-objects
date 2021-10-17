@@ -7,6 +7,7 @@ export abstract class Visitor<ExpectedType extends Serializable> {
 
     abstract owner(target: ExpectedType, ownerPropName: string): void;
     abstract verbatim<DataType>(
+        target: Serializable,
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void
     ): void;

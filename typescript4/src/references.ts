@@ -14,18 +14,17 @@ export class Reference<ValueType extends Serializable> extends Serializable {
     getFactory = () => Reference.Factory;
     getGlobalId() { return this._ref }
     marshal(visitor:traversal.Visitor<this>) {
-        visitor.begin(this);
         visitor.verbatim(
+            this,
             (target) => {
-                return { __id__: (<this>target)._ref };
+                return (<this>target)._ref;
             },
             (target, value) => {
-                (<this>target)._ref = value.__id__;
+                (<this>target)._ref = value;
             }
         )
-        visitor.end(this);
     }
-    isNotNull() { return this._ref !== null || this._def !== null }
+    isValid() { return !!this._ref || !!this._def }
     pointsTo(obj: Reference<ValueType>|ValueType|undefined|null) { 
         if(obj === undefined || obj === null) {
             return false;

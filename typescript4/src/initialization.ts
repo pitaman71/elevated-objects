@@ -28,14 +28,15 @@ export class Initializer<ExpectedType extends Serializable> implements Visitor<E
     }
 
     verbatim<DataType>(
-        getValue: (target: ExpectedType) => any,
-        setValue: (target: ExpectedType, value: any) => void
+        target: Serializable,
+        getValue: (target: Serializable) => any,
+        setValue: (target: Serializable, value: any) => void
     ): void {
         const newValue = this.initializers.reduce(
             (result: any, initializer: any) => initializer || result
         , undefined);
-        if(this.obj && newValue !== undefined)
-            setValue(this.obj, newValue);
+        if(newValue !== undefined)
+            setValue(target, newValue);
     }
 
     primitive<PropType>(target: any, propName: string, fromString?: (initializer:string) => PropType): void {

@@ -33,8 +33,9 @@ class Comparator<ExpectedType extends serialization.Serializable> implements tra
     }
 
     verbatim<DataType>(
-        getValue: (target: ExpectedType) => any,
-        setValue: (target: ExpectedType, value: any) => void
+        target: serialization.Serializable,
+        getValue: (target: serialization.Serializable) => any,
+        setValue: (target: serialization.Serializable, value: any) => void
     ): Result {
         if(this.result !== Result.Equal) {
             return this.result;
