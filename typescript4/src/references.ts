@@ -9,7 +9,7 @@ export class Reference<ValueType extends Serializable> extends Serializable {
     static ClassSpec = 'elevated-objects.Reference';
     static Factory = factories.concrete<Reference<any>>(Reference.ClassSpec, () => new Reference<any>());
     toString() {
-        return `@${Reference.ClassSpec} ${this._ref} ${this._def?.toString()}`
+        return `@${Reference.ClassSpec} ${this._ref} def=${this._def?.toString()}`
     }
     getFactory = () => Reference.Factory;
     getGlobalId() { return this._ref }
