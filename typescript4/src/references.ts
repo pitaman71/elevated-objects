@@ -41,11 +41,11 @@ export class Reference<ValueType extends Serializable> extends Serializable {
         }
     }
     ref() { return this._ref }
-    def(fetch: (ref: string|number) => Promise<ValueType>): Promise<ValueType> {
+    def(fetch: (ref: Reference<ValueType>) => Promise<ValueType>): Promise<ValueType> {
         if(this._def !== null) {
             return Promise.resolve(this._def);
         } else if(this._ref !== null) {
-            return fetch(this._ref).then(def => {
+            return fetch(this).then(def => {
                 this._def = def;
                 return def;
             })
@@ -79,12 +79,12 @@ export class Reference<ValueType extends Serializable> extends Serializable {
         return result;
     }
     
-    collect(direction: (def: ValueType) => Reference<ValueType>, fetch: (ref: string|number) => Promise<ValueType>, until: (def: ValueType) => boolean): Promise<Array<ValueType>> {
+    collect(direction: (def: ValueType) => Reference<ValueType>, fetch: (ref: Reference<ValueType>) => Promise<ValueType>, until: (def: ValueType) => boolean): Promise<Array<ValueType>> {
         if(this._ref === null && this._def === undefined) {
             return Promise.resolve([]);
         }
         
-        const defPromise = this._def !== undefined? Promise.resolve(this._def) : this._ref !== null ? fetch(this._ref) : Promise.reject('unreachable code');
+        const defPromise = this._def !== undefined? Promise.resolve(this._def) : this._ref !== null ? fetch(this) : Promise.reject('unreachable code');
         return defPromise.then((def) => {
             if(def === null) {
                 return [];
