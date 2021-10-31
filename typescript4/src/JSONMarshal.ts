@@ -77,7 +77,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
                 throw new Error('No JSON here');
             } else if(this.json.hasOwnProperty(propName)) {
                 const newValue = (typeof(this.json[propName]) === 'string')  && fromString ? fromString(this.json[propName]) : this.json[propName];
-                target[propName] = newValue;
+                target[propName] = fromJSON(newValue);
             }
         });
     }    
@@ -246,7 +246,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     primitive<PropType>(target: any, propName: string, fromString?: (initializer:string) => PropType): void {
         new CodeInstruments.Task.Task(`JSONMarshal.Writer.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
             if(target[propName] !== undefined && !this.is_ref) {
-                this.json[propName] = target[propName];
+                this.json[propName] = toJSON(target[propName]);
             }
         });
     }
@@ -356,8 +356,10 @@ export function toJSON(obj: any, path?: any[]): any {
         const result = obj.map((item: any, index: number) => toJSON(item, [ ...usePath, index]));
         return result;
     } else if(obj instanceof Set) {
-        const result = Array.from(obj).map((item: any, index: number) => toJSON(item, [ ...usePath, index]));
-        return result;
+        return { 
+            '__native__': 'Set',
+            '__values__': Array.from(obj).map((item: any, index: number) => toJSON(item, [ ...usePath, index]))
+        };
     } else if(obj === Object(obj)) {
         const result = Object.getOwnPropertyNames(obj).reduce((result: any, propName: string) => {
             result[propName] = toJSON(obj[propName], [ ...usePath, propName]);
@@ -374,7 +376,9 @@ export function fromJSON(json: any): any {
         const reader = new Reader<any>(factories.getFactory(json['__class__']), json, {}); 
         reader.read();
         return reader.obj;
-    } else if(Array.isArray(json)) {
+    } else if(json && json.hasOwnProperty('__native__') && json['__native__'] === 'Set' && json.hasOwnProperty('__values__') ) {
+            return new Set(fromJSON(json['__values__']));
+        } else if(Array.isArray(json)) {
         return json.map((item: any) => fromJSON(item));
     } else if(json === Object(json)) {
         return Object.getOwnPropertyNames(json).reduce((result: any, propName: string) => {
