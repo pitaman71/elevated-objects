@@ -1,3 +1,7 @@
+import { factories } from './construction';
+import { Serializable } from './serialization';
+import { Visitor } from './traversal';
+
 export abstract class Domain<ValueType> {
     abstract fromString(text: string, format?: string): ValueType;
     abstract toString(value: ValueType, format?: string): string;
@@ -9,15 +13,28 @@ export abstract class Domain<ValueType> {
 }
 
 export function makeValueClass<ValueType>(
+    classSpec: string,
     domain: Domain<ValueType>
 ) {
-    return class Idiomatic {
+    return class _Value extends Serializable {
         value?: ValueType;
+        static Factory = factories.concrete<_Value>(classSpec, () => new _Value());
+        getFactory = () => _Value.Factory;
+        getGlobalId(): number|string|null { return null; }
+        marshal(visitor: Visitor<this>): void {
+            visitor.begin(this);
+            visitor.primitive(this, 'value')
+            visitor.end(this);
+        }
         toString() { return this.value === undefined ? '' : domain.toString(this.value) }
-        protected constructor(value?: ValueType) { this.value = value }
-        static fromString(value: string)  { return new this(domain.fromString(value)); }
-        static cmp(a: Idiomatic, b: Idiomatic) { return a.value === undefined || b.value === undefined ? undefined : domain.cmp(a.value, b.value) }
-        static make(): Idiomatic { return new Idiomatic(domain.make()) }
+        static from(value?: ValueType) {
+            const result = new _Value();
+            result.value = value;
+            return result;
+        }
+        static fromString(text: string)  { return _Value.from(domain.fromString(text)); }
+        static cmp(a: _Value, b: _Value) { return a.value === undefined || b.value === undefined ? undefined : domain.cmp(a.value, b.value) }
+        static domain() { return domain }
     }
 }
 
