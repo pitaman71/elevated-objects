@@ -3,12 +3,19 @@ import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
 export abstract class Domain<ValueType> {
-    abstract fromString(text: string, format?: string): ValueType;
-    abstract toString(value: ValueType, format?: string): string;
+    abstract asString(format?: string): undefined|{
+        from(text: string): ValueType;
+        to(value: ValueType): string
+    };
+    abstract asEnumeration(maxCount: number): undefined|{
+        forward(): Generator<ValueType>;    
+        backward(): Generator<ValueType>;    
+    }
+    abstract asColumns(): undefined| {
+        getColumnNames(): string[];
+    }
     abstract cmp(a: ValueType, b:ValueType): undefined|-1|0|1;
     abstract make(): ValueType;
-    abstract enumerable(maxCount: number): boolean;
-    abstract enumerate(maxCount: number, ascending: boolean): Generator<ValueType>;
     abstract random(... history: ValueType[]): undefined|ValueType;
 }
 
@@ -26,13 +33,13 @@ export function makeValueClass<ValueType>(
             visitor.primitive(this, 'value')
             visitor.end(this);
         }
-        toString() { return this.value === undefined ? '' : domain.toString(this.value) }
+        toString() { return this.value !== undefined && domain.asString()?.to(this.value) || '' }
         static from(value?: ValueType) {
             const result = new _Value();
             result.value = value;
             return result;
         }
-        static fromString(text: string)  { return _Value.from(domain.fromString(text)); }
+        static fromString(text: string)  { return _Value.from(domain.asString()?.from(text)); }
         static cmp(a: _Value, b: _Value) { return a.value === undefined || b.value === undefined ? undefined : domain.cmp(a.value, b.value) }
         static domain() { return domain }
     }
@@ -50,22 +57,44 @@ export class Aggregate<ValueType> implements Domain<ValueType> {
         this.members = Object.getOwnPropertyNames(proto);
     }
 
-    fromString(text: string, format?: string): ValueType {
-        const parsed = JSON.parse(text);
-        if(!parsed) throw new Error(`Cannot parse "${text}"`);
-        const result: any = {};
-        this.members.forEach(member => {
-            result[member] = parsed[member];
-        })
-        return result;
+    asString(format?: string) {
+        const target = this;
+        return new class {
+            from(text: string): ValueType {
+                const parsed = JSON.parse(text);
+                if(!parsed) throw new Error(`Cannot parse "${text}"`);
+                const result: any = {};
+                target.members.forEach(member => {
+                    result[member] = parsed[member];
+                })
+                return result;
+            }
+
+            to(value: ValueType): string {
+                const result: any = {};
+                target.members.forEach(member => {
+                    result[member] = value[member as keyof ValueType];
+                });
+                return JSON.stringify(result);
+            }
+        }
     }
 
-    toString(value: ValueType, format?: string): string {
-        const result: any = {};
-        this.members.forEach(member => {
-            result[member] = value[member as keyof ValueType];
-        });
-        return JSON.stringify(result);
+    asColumns() { 
+        const target=this;
+        return new class {
+            getColumnNames(): string[] {
+                let result: string[] = [];
+                target.members.forEach(member => {
+                    const asColumns = target.proto.get(member as keyof ValueType)?.asColumns();
+                    if(!asColumns)
+                        result = [ ...result, member ];
+                    else
+                        result = [ ...result, ...asColumns.getColumnNames().map(sub => `${member}.${sub}`) ];
+                });
+                return result;
+            }
+        } 
     }
 
     cmp(a: ValueType, b:ValueType): undefined|-1|0|1 {
@@ -86,11 +115,9 @@ export class Aggregate<ValueType> implements Domain<ValueType> {
         });        
         return result;
     }
-    enumerable(maxCount: number): boolean {
-        return false;
-    }
-    enumerate(maxCount: number, ascending: boolean): Generator<ValueType> {
-        throw new Error('Aggregates are not enumerable');
+
+    asEnumeration(maxCount: number) {
+        return undefined;
     }
 
     random(... history: ValueType[]): undefined|ValueType {
