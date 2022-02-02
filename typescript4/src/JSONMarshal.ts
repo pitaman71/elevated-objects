@@ -171,7 +171,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         });
     }
 
-    read(): any {
+    read(): undefined|null|ExpectedType {
         return new CodeInstruments.Task.Task(`JSONMarshal.Reader.read`).logs(console.log, logEnable).returns({}, () => {
             const classSpec = 
                 this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : this.factory.getClassSpec();
