@@ -1,7 +1,7 @@
 import { Serializable } from './serialization';
 import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
-import * as CodeInstruments from 'code-instruments';
+import * as CodeInstruments from '@pitaman71/omniglot-code-instruments';
 import { Reference } from './references';
 
 export var logEnable = () => false;
