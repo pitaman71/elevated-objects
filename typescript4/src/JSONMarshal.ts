@@ -364,7 +364,7 @@ export function toJSON(obj: any, path?: any[]): any {
         const result = Object.getOwnPropertyNames(obj).reduce((result: any, propName: string) => {
             result[propName] = toJSON(obj[propName], [ ...usePath, propName]);
             return result;
-        }, {});
+        }, { '__native__': 'Object' });
         return result;
     } else {
         return obj;
@@ -382,7 +382,8 @@ export function fromJSON(json: any): any {
         return json.map((item: any) => fromJSON(item));
     } else if(json === Object(json)) {
         return Object.getOwnPropertyNames(json).reduce((result: any, propName: string) => {
-            result[propName] = fromJSON(json[propName]);
+            if(propName !== '__native__')
+                result[propName] = fromJSON(json[propName]);
             return result;
         }, {});
     } else {

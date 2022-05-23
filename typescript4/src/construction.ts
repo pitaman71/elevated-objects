@@ -2,9 +2,35 @@ import { Serializable } from './serialization';
 
 type Allocator<ExpectedType extends Serializable> = (factory: Factory<ExpectedType>, initializer?: any) => ExpectedType;
 
+export class Directory<ExpectedType> {
+    classSpec: string;
+    instances: Map<string|number, ExpectedType>;
+
+    constructor(classSpec: string) {
+        this.classSpec = classSpec;
+        this.instances = new Map();
+    }
+
+    resolve(id: string, sample: ExpectedType): ExpectedType {
+        if(id === null) return sample;
+        const instance = this.instances.get(id);
+        if(instance) return instance;
+        this.instances.set(id, sample);
+        return sample;
+    }
+
+    find(id: string): ExpectedType {
+        const instance = this.instances.get(id);
+        if(!instance) {
+            throw new Error(`Unable to locate instance ${this.classSpec}"${id}"`)
+        }
+        return instance;
+    }
+}
+
 export class Factory<ExpectedType extends Serializable> {
     classSpec: string;
-    allocators: { [key: string]: Allocator<ExpectedType> };
+    allocators: Map<string, Allocator<ExpectedType>>;
 
     static abstract<ExpectedType extends Serializable>(classSpec: string) {
         const result = new Factory<ExpectedType>(classSpec);
@@ -15,7 +41,7 @@ export class Factory<ExpectedType extends Serializable> {
         allocator: Allocator<ExpectedType>
     ) {
         const result = new Factory<ExpectedType>(classSpec);
-        result.allocators = { [classSpec]: allocator };
+        result.allocators.set(classSpec, allocator);
         return result;
     }
 
@@ -24,7 +50,7 @@ export class Factory<ExpectedType extends Serializable> {
         parentFactories: Factory<any>[]
     ) {
         const result = new Factory<ExpectedType>(classSpec);
-        result.allocators = { [classSpec]: allocator };
+        result.allocators.set(classSpec, allocator);
         parentFactories.forEach((parentFactory: Factory<any>) => {
             parentFactory.allocators = { 
                 ... parentFactory.allocators,
@@ -36,7 +62,7 @@ export class Factory<ExpectedType extends Serializable> {
 
     constructor(classSpec: string) {
         this.classSpec = classSpec;
-        this.allocators = {};
+        this.allocators = new Map();
     }
 
     getClassSpec() {
@@ -48,10 +74,14 @@ export class Factory<ExpectedType extends Serializable> {
             classSpec = this.classSpec;
         }
 
-        if(!Object.getOwnPropertyNames(this.allocators).includes(classSpec)) {
-            throw new Error(`Object of type ${classSpec}is not compatible with ${Object.getOwnPropertyNames(this.allocators)}`);
+        if(!this.allocators.has(classSpec)) {
+            throw new Error(`Object of type ${classSpec} cannot be instantiated with allocators ${Array.from(this.allocators.keys()).join(',')}`);
         }
-        const result = this.allocators[classSpec](this);
+        const allocator = this.allocators.get(classSpec);
+        if(allocator === undefined) {
+            throw new Error(`Factory is unable to find allocator function for ${classSpec}`)
+        }
+        const result = allocator(this);
         result.getFactory = () => this;
         return result
     }
