@@ -15,8 +15,19 @@ export abstract class Domain<ValueType> {
         getColumnNames(): string[];
     }
     abstract cmp(a: ValueType, b:ValueType): undefined|-1|0|1;
-    abstract make(): ValueType;
-    abstract random(... history: ValueType[]): undefined|ValueType;
+}
+
+export class Samples<ValueType> {
+    _values: ValueType[];
+
+    constructor(...values_: ValueType[]) {
+        this._values = [ ...values_ ];
+    }
+
+    random() {
+        const index = Math.floor(Math.random() * this._values.length);
+        return this._values[index];
+    }
 }
 
 export function makeValueClass<ValueType>(
@@ -108,23 +119,8 @@ export class Aggregate<ValueType> implements Domain<ValueType> {
         });
         return 0;
     }
-    make(): ValueType {
-        const result: any = {};
-        this.members.forEach(member => {
-            result[member] = this.proto.get(member as keyof ValueType)?.make();
-        });        
-        return result;
-    }
 
     asEnumeration(maxCount: number) {
         return undefined;
-    }
-
-    random(... history: ValueType[]): undefined|ValueType {
-        const result: any = {};
-        this.members.forEach(member => {
-            result[member] = this.proto.get(member as keyof ValueType)?.make();
-        });        
-        return result;
     }
 }
