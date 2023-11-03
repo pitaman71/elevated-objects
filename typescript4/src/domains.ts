@@ -17,6 +17,8 @@ export abstract class Domain<ValueType> {
     abstract cmp(a: ValueType, b:ValueType): undefined|-1|0|1;
 }
 
+export type getValueType<T> = T extends Domain<infer U> ? U : never;
+
 export class Samples<ValueType> {
     _values: ValueType[];
 
@@ -56,11 +58,12 @@ export function makeValueClass<ValueType>(
     }
 }
 
-export class Aggregate<ValueType> implements Domain<ValueType> {
+export class Aggregate<ValueType> extends Domain<ValueType> {
     proto: Map<keyof ValueType, Domain<any>>;
     members: string[];
 
     constructor(proto: { [propName: string]: Domain<any>}) {
+        super();
         this.proto = new Map();
         Object.getOwnPropertyNames(proto).forEach(key => {
             this.proto.set(key as keyof ValueType, proto[key]);
