@@ -3,6 +3,10 @@ import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
 export abstract class Domain<ValueType> {
+    asJSON(): undefined|{
+        from(json: any): ValueType;
+        to(value: ValueType): string;
+    } { return undefined }
     abstract asString(format?: string): undefined|{
         from(text: string): ValueType;
         to(value: ValueType): string
