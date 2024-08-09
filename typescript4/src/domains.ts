@@ -1,14 +1,18 @@
 import { factories } from './construction';
+import { Node as SchemaNode } from './schema';
 import { Serializable } from './serialization';
 import { Visitor } from './traversal';
 
+export type JSONValue = boolean | number | string | null | { [key: string]: JSONValue|undefined } | Array<JSONValue>;
+
 export abstract class Domain<ValueType> {
     asJSON(): undefined|{
-        from(json: any): ValueType;
-        to(value: ValueType): string;
+        schema(): SchemaNode<any>;
+        from(json: JSONValue): ValueType|null;
+        to(value: ValueType|null): JSONValue;
     } { return undefined }
     abstract asString(format?: string): undefined|{
-        from(text: string): ValueType;
+        from(text: string): ValueType|null;
         to(value: ValueType): string
     };
     abstract asEnumeration(maxCount: number): undefined|{
@@ -56,7 +60,7 @@ export function makeValueClass<ValueType>(
             result.value = value;
             return result;
         }
-        static fromString(text: string)  { return _Value.from(domain.asString()?.from(text)); }
+        static fromString(text: string)  { return _Value.from(domain.asString()?.from(text) || undefined); }
         static cmp(a: _Value, b: _Value) { return a.value === undefined || b.value === undefined ? undefined : domain.cmp(a.value, b.value) }
         static domain() { return domain }
     }
