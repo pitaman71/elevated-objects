@@ -1,6 +1,6 @@
 {
-  "name": "@pitaman71/omniglot-introspect",
-  "version": "0.8.81",
+  "name": "typescript-introspection",
+  "version": "0.9.1",
   "description": "Framework for specifying introspect-able object types that can accurately initialize themselves, marshal themselves to/from JSON and other formats with little to no additional code.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -9,6 +9,7 @@
     "src/**/*"
   ],
   "scripts": {
+    "doc": "typedoc src/index.ts",
     "build": "tsc",
     "start": "tsc -w",
     "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
@@ -18,11 +19,13 @@
   "author": "Alan Pita",
   "license": "ISC",
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "@types/luxon": "^2.3.0",
     "@types/node": "^14.14.31",
     "@types/react": "^18.2.74",
     "ts-jest": "^29.2.4",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typedoc": "^0.26.7"
   },
   "peerDependencies": {
     "@pitaman71/omniglot-code-instruments": "^0.8.1",
