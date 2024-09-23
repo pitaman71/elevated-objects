@@ -29,6 +29,9 @@ export abstract class Domain<ValueType> {
     /** return the schema representation of this introspectable datatype */
     asSchema(): undefined|SchemaNode<any> { return undefined; }
 
+    /** return the a description of this domain */
+    asComment(): undefined|string[] { return undefined; }
+
     /** returns methods for parsing an object from JSON or printing an object to JSON */
     asJSON(): undefined|{
         from(json: JSONValue, options?: { onError?: (error: Error) => void }): ValueType|null;

@@ -1,7 +1,7 @@
 import { Serializable } from './serialization';
 import { factories, Factory } from './construction';
 import { Visitor } from './traversal';
-import * as CodeInstruments from '@pitaman71/omniglot-code-instruments';
+import { Tasks } from 'typescript-code-instruments';
 import { Reference } from './references';
 
 export var logEnable = () => false;
@@ -63,7 +63,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        new CodeInstruments.Task.Task('JSONMarshal.Reader.verbatim').logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument('JSONMarshal.Reader.verbatim').logs(console.log, logEnable).returns({}, () => {
             setValue(target, this.json);
         });
     }    
@@ -72,7 +72,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        new CodeInstruments.Task.Task(`JSONMarshal.Reader.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Reader.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
             if(this.json === undefined) {
                 throw new Error('No JSON here');
             } else if(this.json.hasOwnProperty(propName)) {
@@ -97,7 +97,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     ): void {
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
-        new CodeInstruments.Task.Task(`JSONMarshal.Reader.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Reader.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
             const target = <any>this.obj;
             if(this.json === undefined) {
                 target[propName] = undefined;
@@ -123,7 +123,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        new CodeInstruments.Task.Task(`JSONMarshal.Reader.array(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Reader.array(${propName})`).logs(console.log, logEnable).returns({}, () => {
             const target = <any>this.obj;
             if(this.json === undefined) {
                 throw new Error('No JSON here');
@@ -150,7 +150,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being read from JSON, read the value of attribute :attr_name from JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        new CodeInstruments.Task.Task(`JSONMarshal.Reader.map(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Reader.map(${propName})`).logs(console.log, logEnable).returns({}, () => {
             const target = <any>this.obj;
             if(this.json === undefined) {
                 throw new Error('No JSON here');
@@ -172,7 +172,7 @@ export class Reader<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     read(): undefined|null|ExpectedType {
-        return new CodeInstruments.Task.Task(`JSONMarshal.Reader.read`).logs(console.log, logEnable).returns({}, () => {
+        return new Tasks.Instrument(`JSONMarshal.Reader.read`).logs(console.log, logEnable).returns({}, () => {
             const classSpec = 
                 this.json && this.json.hasOwnProperty('__class__') ? this.json['__class__'] : this.factory.getClassSpec();
 
@@ -238,13 +238,13 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         getValue: (target: Serializable) => any,
         setValue: (target: Serializable, value: any) => void
     ): void {
-        new CodeInstruments.Task.Task(`JSONMarshal.Writer.verbatim`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Writer.verbatim`).logs(console.log, logEnable).returns({}, () => {
             this.json = getValue(target);
         });
     }
 
     primitive<PropType>(target: any, propName: string, fromString?: (initializer:string) => PropType): void {
-        new CodeInstruments.Task.Task(`JSONMarshal.Writer.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Writer.primitive(${propName})`).logs(console.log, logEnable).returns({}, () => {
             if(target[propName] !== undefined && !this.is_ref) {
                 this.json[propName] = toJSON(target[propName]);
             }
@@ -267,7 +267,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name.
         // Expect that the attribute value is probably not a reference to a shared object (though it may be)
 
-        new CodeInstruments.Task.Task(`JSONMarshal.Writer.scalar(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Writer.scalar(${propName})`).logs(console.log, logEnable).returns({}, () => {
             if(this.is_ref) return;
             const target = <any>this.obj;
             if(target.hasOwnProperty(propName)) {
@@ -289,7 +289,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        new CodeInstruments.Task.Task(`JSONMarshal.Writer.array(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Writer.array(${propName})`).logs(console.log, logEnable).returns({}, () => {
             if(this.is_ref) return;
             const target = <any>this.obj;
             if(target.hasOwnProperty(propName)) {
@@ -313,7 +313,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
         // For the in-memory object currently being written to JSON, write the value of attribute :attr_name to JSON propery attr_name
         // Expect that the attribute value is probably a reference to a shared object (though it may not be)
 
-        new CodeInstruments.Task.Task(`JSONMarshal.Writer.map(${propName})`).logs(console.log, logEnable).returns({}, () => {
+        new Tasks.Instrument(`JSONMarshal.Writer.map(${propName})`).logs(console.log, logEnable).returns({}, () => {
             if(this.is_ref) return;
             const target = <any>this.obj;
             if(target.hasOwnProperty(propName)) {
@@ -331,7 +331,7 @@ export class Writer<ExpectedType extends Serializable> implements Visitor<Expect
     }
 
     write(): any {
-        return new CodeInstruments.Task.Task(`JSONMarshal.Writer.write`).logs(console.log, logEnable).returns({ obj: this.obj?.toString() }, () => {
+        return new Tasks.Instrument(`JSONMarshal.Writer.write`).logs(console.log, logEnable).returns({ obj: this.obj?.toString() }, () => {
             if(!!this.json) {
                 // !! should probably be an error
             } else if(this.obj instanceof Serializable) {
