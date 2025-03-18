@@ -12,6 +12,11 @@ export type Transcoder<X,Y> = {
     to(y: Y|null, options?: { onError?: (error: Error) => void }): X|null;
 };
 
+export type Format = {
+    standard: string;
+    definition:  string
+};
+
 /**
  * Abstract base for classes that model introspectable datatypes.
  */
@@ -33,15 +38,6 @@ export abstract class Domain<ValueType, FeatureKey=ValueType> {
 
     asNumber(dimension?: Measurements.Dimension): undefined| Transcoder<number,ValueType> & {
         dimension: Measurements.Dimension;
-    } { return undefined; }
-
-    asISO(): undefined| {
-        date(): undefined|Transcoder<string,ValueType> 
-        time(): undefined|Transcoder<string, ValueType>
-        dateTime(): undefined|Transcoder<string, ValueType>
-        duration(): undefined|Transcoder<string, ValueType>
-        interval(): undefined|Transcoder<string,ValueType> 
-        recurrence(): undefined|Transcoder<string,ValueType> 
     } { return undefined; }
 
     /** 
@@ -132,8 +128,13 @@ export abstract class Domain<ValueType, FeatureKey=ValueType> {
      * If this domain has a string representation, calling this
      * method will return methods for converting a value to or
      * from string representation.
+     * 
+     * NOTE: by convention, if `format` is provided and the Domain
+     * does not recognize the specific requested format, this method must 
+     * return `undefined`. It should not coerce to a different format.
+     * If `format` is not provided, this method may coerce to any known format.
      */
-    abstract asString(format?: string): undefined|Transcoder<string, ValueType>;
+    abstract asString(format?: Format): undefined|Transcoder<string, ValueType>;
 
     /**
      * Compares the two provided values according to the domain's natural sort
