@@ -1,7 +1,11 @@
+export * as Comparison from './comparison';
 export * from './construction';
 export * from './domains';
+export * as Errors from './errors';
 export * from './initialization';
 export * as JSONMarshal from './JSONMarshal';
+export * as Measurements from './measurements';
+export * as Parsing from './parsing';
 export * from './references';
 export * from './schema';
 export * from './serialization';

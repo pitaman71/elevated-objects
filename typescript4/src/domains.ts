@@ -1,31 +1,27 @@
-import { factories } from './construction';
 import { Node as SchemaNode } from './schema';
-import { Serializable } from './serialization';
-import { Visitor } from './traversal';
+import { Error } from './parsing';
+import * as Measurements from './measurements';
+import { Point, Polygon } from 'geojson';
 
 export type JSONValue = boolean | number | string | null | { [key: string]: JSONValue|undefined } | Array<JSONValue>;
 
-/**
- * Interface for returning details about a parse error
- */
-export interface Error {
-    type?: {
-        expected: 'boolean' | 'number' | 'string' | 'null' | 'object' | 'array'        
-    },
-    format?: {
-        expected?: { tokenType: string },
-        atCharacter?: number
-    },
-    properties?: { [propName:string]: {
-        status: 'good'|'missing'|'extra'|'malformed',
-        details?: Error
-    } }
+export type Mass<X>  = X & { mass: number };
+
+export type Transcoder<X,Y> = {
+    from(x: X|null, options?: { onError?: (error: Error) => void }): Y|null;
+    to(y: Y|null, options?: { onError?: (error: Error) => void }): X|null;
 };
 
 /**
  * Abstract base for classes that model introspectable datatypes.
  */
-export abstract class Domain<ValueType> {
+export abstract class Domain<ValueType, FeatureKey=ValueType> {
+    canonicalName: string;
+
+    constructor(canonicalName: string) {
+        this.canonicalName = canonicalName;
+    }
+
     /** return the schema representation of this introspectable datatype */
     asSchema(): undefined|SchemaNode<any> { return undefined; }
 
@@ -33,21 +29,52 @@ export abstract class Domain<ValueType> {
     asComment(): undefined|string[] { return undefined; }
 
     /** returns methods for parsing an object from JSON or printing an object to JSON */
-    asJSON(): undefined|{
-        from(json: JSONValue, options?: { onError?: (error: Error) => void }): ValueType|null;
-        to(value: ValueType|null, options?: { onError?: (error: Error) => void }): JSONValue;
-    } { return undefined }
+    asJSON(): undefined|Transcoder<JSONValue, ValueType> { return undefined }
+
+    asNumber(dimension?: Measurements.Dimension): undefined| Transcoder<number,ValueType> & {
+        dimension: Measurements.Dimension;
+    } { return undefined; }
+
+    asISO(): undefined| {
+        date(): undefined|Transcoder<string,ValueType> 
+        time(): undefined|Transcoder<string, ValueType>
+        dateTime(): undefined|Transcoder<string, ValueType>
+        duration(): undefined|Transcoder<string, ValueType>
+        interval(): undefined|Transcoder<string,ValueType> 
+        recurrence(): undefined|Transcoder<string,ValueType> 
+    } { return undefined; }
 
     /** 
      * If this is an aggregate or aggregate-like datatype, 
      * calling this method will return a list of property names and a map 
      * from property names to subdomains 
      */
-    asProperties(): undefined|{
-        names: string[],
-        domain: (propName: string) => undefined|Domain<any> 
-    } { return undefined }
+    asProperties(): undefined|Record<string, {
+        name: string,
+        domain: Domain<any>,
+        required: boolean
+    }> { return undefined }
 
+    /** 
+     * If this is an array or array-like datatype, 
+     * calling this method will return a list of property names and a map 
+     * from property names to subdomains 
+     */
+    asArray(): undefined|{
+        indexDomains: () => undefined|Array<Domain<any>>;
+        elementDomain: () => undefined|Domain<any> 
+    } { return undefined }
+    
+    /** 
+     * If this is an aggregate or aggregate-like datatype, 
+     * calling this method will return a list of property names and a map 
+     * from property names to subdomains 
+     */
+    asVariants(): undefined|{
+        discKey: string,
+        domain: Record<string, Domain<any>>
+    } { return undefined }
+    
     /**
      * If this domain has a countable number of legal values,
      * calling this method will return two methods for iterating
@@ -55,8 +82,50 @@ export abstract class Domain<ValueType> {
      * according to the domain's natural ordering of values.
      */
     asEnumeration(maxCount: number): undefined|{
-        forward(): Generator<ValueType>;    
-        backward(): Generator<ValueType>;    
+        forward(): Generator<ValueType>;
+        backward(): Generator<ValueType>;
+    } { return undefined }
+
+    /**
+     * If the values of this domain may be mapped onto a feature
+     * vector or embedding, calling this method returns will
+     * select a function for feature vector or embedding and a 
+     * feature distance metric for AI-compatible fuzzy search + matching.
+     * 
+     * The feature distance metric has range [0.0, 1.0] should reserve the value 1.0 for
+     * a complete match (value equality). The value 0.0 should similarly be reserved for
+     * a complete mismatch (nothing in common).
+     * 
+     * @param maxFeatureSize a number which limits the feature vector size
+     */
+    asFeature(maxFeatureSize: number): undefined|{
+        /**
+         * Call this function repeatedly across a collection of values to
+         * build a histogram of matched and unmatched values and value parts
+         * according to the feature vector/embedding.
+         * 
+         * @param value the next value to add to the characterization
+         * @param options.featureMass a histogram of feature indices to cumulative mass
+         * @param options.unclassifiedCount a count of values (and value parts, such as substrings, if applicable) that matched no feature
+         */
+        characterize(value: ValueType, options: { featureMass?: Map<FeatureKey, Mass<{ key: FeatureKey }>>, unclassified?: Map<ValueType, number> }): void;
+        
+        /**  
+         * Convert a value in this domain to a feature vector/embedding as a
+         * sparse array of feature objects comprising the feature index and weight, 
+         * sorted in decreasing weight, where the weight is always a floating point number 
+         * weight = 0.0 means no matches of any kind, and such features should be omitted by convention
+         * if a non-empty set of non-overlapping proper substring matches are found, their weights are summed
+         * a full pattern substring match has weight 1.0, with increasingly fuzzy matches decreasing towards 0.0
+         * a full string exact match gets weight +Inf
+         */
+        to(value: ValueType): Map<FeatureKey, Mass<{ key: FeatureKey }>>,
+        /**
+         * Convert a feature vector/embedding to a finite set of weighted example values.
+         * @param featureMass histogram of feature indices to mass
+         * @param numSamples: maximum number of random samples to generate
+         */
+        from(featureMass: Map<FeatureKey, Mass<{ key: FeatureKey }>>, numSamples: number): Generator<Mass<{ value: ValueType }>>,
     } { return undefined }
 
     /**
@@ -64,10 +133,7 @@ export abstract class Domain<ValueType> {
      * method will return methods for converting a value to or
      * from string representation.
      */
-    abstract asString(format?: string): undefined|{
-        from(text: string, options?: { onError?: (error: Error) => void }): ValueType|null;
-        to(value: ValueType, options?: { onError?: (error: Error) => void }): string
-    };
+    abstract asString(format?: string): undefined|Transcoder<string, ValueType>;
 
     /**
      * Compares the two provided values according to the domain's natural sort
@@ -81,48 +147,3 @@ export abstract class Domain<ValueType> {
 }
 
 export type getValueType<T> = T extends Domain<infer U> ? U : never;
-
-/**
- * @deprecated
- */
-export class Samples<ValueType> {
-    _values: ValueType[];
-
-    constructor(...values_: ValueType[]) {
-        this._values = [ ...values_ ];
-    }
-
-    random() {
-        const index = Math.floor(Math.random() * this._values.length);
-        return this._values[index];
-    }
-}
-
-/**
- * @deprecated
- */
-export function makeValueClass<ValueType>(
-    classSpec: string,
-    domain: Domain<ValueType>
-) {
-    return class _Value extends Serializable {
-        value?: ValueType;
-        static Factory = factories.concrete<_Value>(classSpec, () => new _Value());
-        getFactory = () => _Value.Factory;
-        getGlobalId(): number|string|null { return null; }
-        marshal(visitor: Visitor<this>): void {
-            visitor.begin(this);
-            visitor.primitive(this, 'value')
-            visitor.end(this);
-        }
-        toString() { return this.value !== undefined && domain.asString()?.to(this.value) || '' }
-        static from(value?: ValueType) {
-            const result = new _Value();
-            result.value = value;
-            return result;
-        }
-        static fromString(text: string)  { return _Value.from(domain.asString()?.from(text) || undefined); }
-        static cmp(a: _Value, b: _Value) { return a.value === undefined || b.value === undefined ? undefined : domain.cmp(a.value, b.value) }
-        static domain() { return domain }
-    }
-}
